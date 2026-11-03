@@ -1,12 +1,15 @@
 # Forma
 
-A personal, self-hosted STL library for Unraid. Keep the **original photos** beside your model files, organize with tags and collections, and track the designs you want to print.
+A personal, self-hosted STL library for Unraid with dark, light and system appearance modes. Keep the **original photos** beside your model files, organize with tags and collections, and track the designs you want to print.
 
 ## What works
 
 - Photo-first grid and list views; photo galleries and selectable covers.
 - Automatic previews for existing and new entries: use embedded 3MF creator photos first, then slicer thumbnails, with software-rendered STL/OBJ/3MF geometry as a fallback. Model ZIPs can supply an embedded photo or a model preview too. Uploaded/source-page cover photos take priority.
 - Search titles, creators, descriptions, collections, and tags.
+- Bulk edit selected models: add/remove tags, assign/clear collections, change print status and favorite state.
+- A read-only folder watcher checks every minute by default and queues new/changed folders in the Import inbox for approval.
+- Duplicate finder compares SHA-256 content hashes, including files with different names. Results are advisory; nothing is deleted or merged.
 - Filter by source, tags, and print status; favorites and a print queue.
 - Upload STL, 3MF, OBJ, STEP, STP and ZIP files, plus JPG, PNG, WebP and GIF images. ZIP files are stored for download, not extracted.
 - Import public page metadata (title, description, creator, tags and Open Graph cover image when provided).
@@ -75,7 +78,11 @@ In **Library settings**, download a full backup. It contains a consistent SQLite
 
 To restore: stop the container, preserve a copy of its current appdata, extract `forma.sqlite3` and `files/` from the backup into an **empty** appdata directory, then restart with the same `/data` and `/library` mappings. Backups contain absolute container paths; keep these mappings unchanged. Do not mix a restored database with old SQLite `-wal` or `-shm` files. Images and files scanned from your model share remain linked to their original locations. Moving or renaming those original files breaks those links.
 
-Folder imports are explicit snapshots, not a live watcher. New folders appear on the next scan; changes inside a previously imported folder are not synchronized. To rescan such a folder, remove its catalog entry and import it again (this keeps original share files, but you will need to reapply that entry's notes/tags).
+The folder watcher is enabled by default and checks every minute, including when the browser is closed. Open **Import inbox** to change the interval (30 seconds to one hour), pause watching, or scan immediately. New folders and changes to linked files wait for approval. Approving a change synchronizes only server-share file references; your titles, tags, notes, collections, print state and uploaded images stay in place. Missing files are flagged and acknowledged without removing catalog entries. Dismissed changes stay dismissed until that folder changes again. Originals are always read-only.
+
+**Find duplicates** runs a background content-hash index when requested and saves hashes for unchanged files. It finds exact file copies, not geometrically similar models or equivalent STL/3MF exports. Changed and unavailable files are excluded from stale matches. File contents are never deleted or altered. Large libraries may take time to hash on their first scan.
+
+Use **Select** above the catalog to select cards, then **Edit selected**. Select visible applies to the current filtered view; the selected count includes selections retained from other filters. Bulk changes are atomic and do not change file attachments or titles.
 
 Automatic thumbnails are generated on demand and cached in `/data/thumbnails`. Existing entries gain previews automatically without reimporting or changing originals. The cache can be removed safely while the container is stopped; it is rebuilt as cards are viewed. Geometry rendering is limited to 256 MB of model/archive data; embedded images are limited to 16 MB and can still be read from larger 3MF/ZIP files. STEP files and invalid/unsupported models need a manual cover photo. Generated thumbnails are disposable and are not included in full backups.
 

@@ -22,6 +22,7 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 from previews import cached_preview
+from library_services import LibraryServices
 
 ROOT = Path(__file__).resolve().parent
 MODELS = {'.stl', '.3mf', '.obj', '.step', '.stp', '.zip'}
@@ -103,7 +104,7 @@ class MetadataParser(HTMLParser):
             self.title += data
 
 
-def create_app(data_dir=None, library_dir=None):
+def create_app(data_dir=None, library_dir=None, start_watcher=False):
     app = Flask(__name__, static_folder=str(ROOT / 'static'))
     data = Path(data_dir or os.environ.get('FORMA_DATA', '/data')).resolve()
     library = Path(library_dir or os.environ.get('FORMA_LIBRARY', '/library')).resolve()
@@ -140,6 +141,20 @@ def create_app(data_dir=None, library_dir=None):
           sha256 TEXT NOT NULL DEFAULT '', external INTEGER NOT NULL DEFAULT 0
         );
         ''')
+        columns = {r[1] for r in c.execute('PRAGMA table_info(files)')}
+        for name in ('mtime_ns','hash_mtime_ns','hash_size'):
+            if name not in columns:
+                c.execute('ALTER TABLE files ADD COLUMN '+name+' INTEGER NOT NULL DEFAULT 0')
+        for row in c.execute('SELECT id,path,size FROM files WHERE mtime_ns=0').fetchall():
+            try:
+                path = Path(row['path']).resolve()
+                if not (path.is_relative_to(library) or path.is_relative_to(uploads)):
+                    continue
+                stat = path.stat()
+                if stat.st_size==row['size']:
+                    c.execute('UPDATE files SET mtime_ns=? WHERE id=?',(stat.st_mtime_ns,row['id']))
+            except OSError:
+                pass
 
     @app.before_request
     def protect():
@@ -227,6 +242,38 @@ def create_app(data_dir=None, library_dir=None):
             id = insert_model(c, payload)
             return jsonify(model(c,id)), 201
 
+    @app.post('/api/models/bulk')
+    def bulk_update():
+        payload = request.get_json()
+        ids = payload.get('ids')
+        changes = payload.get('changes',{})
+        allowed = {'tags_add','tags_remove','collection','status','favorite'}
+        if not isinstance(ids,list) or not ids or len(ids)>1000 or not all(isinstance(id,str) for id in ids):
+            raise ValueError('Select between 1 and 1000 models.')
+        if not isinstance(changes,dict) or not changes or not set(changes)<=allowed:
+            raise ValueError('Choose tags, a collection, status or a favorite state to update.')
+        for name in ('tags_add','tags_remove'):
+            tags = changes.get(name,[])
+            if not isinstance(tags,list) or len(tags)>100 or not all(isinstance(t,str) and len(t)<=80 for t in tags):
+                raise ValueError('Use up to 100 tags with at most 80 characters each.')
+        if 'collection' in changes and (not isinstance(changes['collection'],str) or len(changes['collection'])>100):
+            raise ValueError('Collection names must be at most 100 characters.')
+        if 'status' in changes and changes['status'] not in ('Saved','To print','Printing','Printed'):
+            raise ValueError('Invalid print status.')
+        if 'favorite' in changes and not isinstance(changes['favorite'],bool):
+            raise ValueError('Favorite must be true or false.')
+        with db() as c:
+            for id in set(ids):
+                old = model(c,id)
+                tags = list(dict.fromkeys(old['tags']+[t.strip() for t in changes.get('tags_add',[]) if t.strip()]))
+                remove = {t.strip() for t in changes.get('tags_remove',[])}
+                tags = [t for t in tags if t not in remove]
+                if len(tags)>100:
+                    raise ValueError('A model cannot have more than 100 tags.')
+                c.execute('UPDATE models SET tags=?,collection=?,status=?,favorite=?,updated_at=? WHERE id=?',
+                          (json.dumps(tags),changes.get('collection',old['collection']).strip(),changes.get('status',old['status']),int(changes.get('favorite',old['favorite'])),now(),id))
+        return jsonify(updated=len(set(ids)))
+
     @app.patch('/api/models/<id>')
     def update_model(id):
         payload = request.get_json()
@@ -258,10 +305,43 @@ def create_app(data_dir=None, library_dir=None):
 
     def add_file(c, id, name, path, kind, external=False, sha=''):
         fid = str(uuid.uuid4())
-        c.execute('INSERT INTO files (id,model_id,name,path,size,kind,external,sha256) VALUES (?,?,?,?,?,?,?,?)',(fid,id,name,str(path),path.stat().st_size,kind,int(external),sha))
+        stat = path.stat()
+        c.execute('INSERT INTO files (id,model_id,name,path,size,kind,external,sha256,mtime_ns,hash_mtime_ns,hash_size) VALUES (?,?,?,?,?,?,?,?,?,?,?)',(fid,id,name,str(path),stat.st_size,kind,int(external),sha,stat.st_mtime_ns,stat.st_mtime_ns if sha else 0,stat.st_size if sha else 0))
         if kind == 'image':
             c.execute("UPDATE models SET cover_id=? WHERE id=? AND cover_id=''",(fid,id))
         return fid
+
+    services = LibraryServices(db,library,uploads,MODELS,IMAGES,insert_model,add_file,now)
+    app.extensions['library_services'] = services
+
+    @app.get('/api/watch')
+    def watch_status():
+        return jsonify(services.settings())
+
+    @app.patch('/api/watch')
+    def watch_configure():
+        return jsonify(services.configure(request.get_json()))
+
+    @app.post('/api/watch/scan')
+    def watch_scan():
+        return jsonify(services.scan())
+
+    @app.get('/api/watch/review')
+    def watch_review_list():
+        return jsonify(items=services.reviews())
+
+    @app.post('/api/watch/review')
+    def watch_review_apply():
+        payload = request.get_json()
+        return jsonify(services.review(payload.get('ids'),payload.get('action')))
+
+    @app.get('/api/duplicates')
+    def duplicates():
+        return jsonify(services.duplicate_report())
+
+    @app.post('/api/duplicates/scan')
+    def duplicate_scan():
+        return jsonify(services.start_duplicates()), 202
 
     @app.post('/api/models/<id>/files')
     def upload_files(id):
@@ -424,9 +504,11 @@ def create_app(data_dir=None, library_dir=None):
             archive.close()
             raise
 
+    if start_watcher:
+        services.start()
     return app
 
 
 if __name__ == '__main__':
     from waitress import serve
-    serve(create_app(),host=os.environ.get('HOST','0.0.0.0'),port=int(os.environ.get('PORT','8080')),threads=6,max_request_body_size=512*1024*1024)
+    serve(create_app(start_watcher=True),host=os.environ.get('HOST','0.0.0.0'),port=int(os.environ.get('PORT','8080')),threads=6,max_request_body_size=512*1024*1024)

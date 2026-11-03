@@ -4,6 +4,8 @@ const $$ = s => [...document.querySelectorAll(s)];
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let models = [], view = 'all', activeTag = '', activeCollection = '', editingId = null, remoteImage = '', listMode = false, toastTimer;
 const draftCollections = new Set();
+const selectedModels = new Set();
+let selectionMode=false, visibleModelIds=[], duplicatePoll=null;
 const sourceName = m => { try { return new URL(m.source_url).hostname.replace(/^www\./,''); } catch { return 'Local files'; } };
 const prettySource = m => sourceName(m).replace(/\.(com|org|net)$/,'');
 const canPreview = m => m.files.some(f=>/\.(3mf|stl|obj|zip)$/i.test(f.name));
@@ -31,7 +33,7 @@ async function api(path, options={}) {
  return result;
 }
 async function refresh() {
- try { models=await api('/api/models'); $('#error-banner').hidden=true; render(); }
+ try { models=await api('/api/models'); for(const id of selectedModels)if(!models.some(m=>m.id===id))selectedModels.delete(id); $('#error-banner').hidden=true; render(); refreshWatchStatus(); }
  catch(error) { $('#error-banner').textContent='Could not load your library. '+error.message; $('#error-banner').hidden=false; }
 }
 function chooseView(next,collection='') {
@@ -60,12 +62,14 @@ function render() {
  let filtered=base.filter(m=>(!activeTag||m.tags.includes(activeTag))&&(!source||sourceName(m)===source)&&(!status||m.status===status)&&(!q||[m.title,m.creator,m.description,m.collection,...m.tags].join(' ').toLocaleLowerCase().includes(q)));
  const sort=$('#sort').value;
  filtered.sort((a,b)=>sort==='az'?a.title.localeCompare(b.title):sort==='oldest'?a.created_at.localeCompare(b.created_at):b.created_at.localeCompare(a.created_at));
+ visibleModelIds=filtered.map(m=>m.id);
+ $('#bulk-bar').hidden=!selectionMode;$('#selection-count').textContent=selectedModels.size+' selected';$('#open-bulk').disabled=!selectedModels.size;$('#select-mode').classList.toggle('active',selectionMode);
  $('#result-count').textContent=`${filtered.length} model${filtered.length===1?'':'s'}`;
  $('#empty-state').hidden=models.length!==0; $('#no-results').hidden=filtered.length!==0||models.length===0;
  $('#model-grid').classList.toggle('list-mode',listMode);
  $('#model-grid').innerHTML=filtered.map(m=>{
  const count=m.files.filter(f=>f.kind==='model').length;
- return `<article class="model-card"><button class="card-open" data-open="${m.id}" aria-label="Open ${escapeHTML(m.title)}">${previewMarkup(m,"card-image")}<div class="card-body"><div class="card-meta"><span class="source-label">${escapeHTML(prettySource(m).toUpperCase())}</span><span class="status-pill ${m.status==='Printed'?'printed':''}">${m.status==='Printed'?'✓ ':''}${escapeHTML(m.status)}</span></div><h3>${escapeHTML(m.title)}</h3><div class="creator">${escapeHTML(m.creator?'by '+m.creator:'Your personal collection')}</div><div class="card-tags">${m.tags.slice(0,3).map(t=>`<span>${escapeHTML(t)}</span>`).join('')}${m.tags.length>3?`<span>+${m.tags.length-3}</span>`:''}</div></div></button><button class="favorite-button ${m.favorite?'is-favorite':''}" data-favorite="${m.id}" aria-label="${m.favorite?'Remove from':'Add to'} favorites">${m.favorite?'♥':'♡'}</button><div class="card-footer"><span>▱ &nbsp; ${count} file${count===1?'':'s'}</span><span>${escapeHTML(new Date(m.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</span></div></article>`;
+ return `<article class="model-card ${selectedModels.has(m.id)?'is-selected':''}">${selectionMode?`<label class="card-selection"><input type="checkbox" data-select-id="${m.id}" aria-label="Select ${escapeHTML(m.title)}" ${selectedModels.has(m.id)?'checked':''}></label>`:''}<button class="card-open" data-open="${m.id}" aria-label="Open ${escapeHTML(m.title)}">${previewMarkup(m,"card-image")}<div class="card-body"><div class="card-meta"><span class="source-label">${escapeHTML(prettySource(m).toUpperCase())}</span><span class="status-pill ${m.status==='Printed'?'printed':''}">${m.status==='Printed'?'✓ ':''}${escapeHTML(m.status)}</span></div><h3>${escapeHTML(m.title)}</h3><div class="creator">${escapeHTML(m.creator?'by '+m.creator:'Your personal collection')}</div><div class="card-tags">${m.tags.slice(0,3).map(t=>`<span>${escapeHTML(t)}</span>`).join('')}${m.tags.length>3?`<span>+${m.tags.length-3}</span>`:''}</div></div></button><button class="favorite-button ${m.favorite?'is-favorite':''}" data-favorite="${m.id}" aria-label="${m.favorite?'Remove from':'Add to'} favorites">${m.favorite?'♥':'♡'}</button><div class="card-footer"><span>▱ &nbsp; ${count} file${count===1?'':'s'}</span><span>${escapeHTML(new Date(m.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</span></div></article>`;
  }).join('');
  watchPreviewErrors($('#model-grid'));
 }
@@ -156,8 +160,87 @@ document.addEventListener('click',e=>{
  const nav=e.target.closest('[data-view]');if(nav){clearFilters();chooseView(nav.dataset.view);}
  const collection=e.target.closest('[data-collection]');if(collection){clearFilters();chooseView('collection',collection.dataset.collection);}
  const tag=e.target.closest('[data-tag]');if(tag){activeTag=tag.dataset.tag;render();}
- const open=e.target.closest('[data-open]');if(open)openDetail(open.dataset.open);
+ const open=e.target.closest('[data-open]');if(open){if(selectionMode){const id=open.dataset.open;selectedModels.has(id)?selectedModels.delete(id):selectedModels.add(id);render();}else openDetail(open.dataset.open);}
  const favorite=e.target.closest('[data-favorite]');if(favorite)toggleFavorite(favorite.dataset.favorite);
 });
 document.addEventListener('keydown',e=>{if(e.key==='/'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)&&!$$('dialog').some(d=>d.open)){e.preventDefault();$('#search').focus();}});
+// Appearance is a device preference. Catalog data always stays on the server.
+const themeSelect=$('#theme-choice');
+themeSelect.value=document.documentElement.dataset.themeChoice||'dark';
+function applyTheme(choice){
+ const resolved=choice==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):choice;
+ document.documentElement.dataset.theme=resolved;document.documentElement.dataset.themeChoice=choice;
+ try{localStorage.setItem('forma-theme',choice);}catch{}
+ document.querySelector('meta[name="theme-color"]').content=resolved==='dark'?'#101217':'#f5f6fa';
+}
+themeSelect.onchange=()=>applyTheme(themeSelect.value);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(themeSelect.value==='system')applyTheme('system');});
+$('#select-mode').onclick=()=>{selectionMode=!selectionMode;if(!selectionMode)selectedModels.clear();render();};
+$('#exit-selection').onclick=()=>{selectionMode=false;selectedModels.clear();render();};
+$('#select-visible').onclick=()=>{visibleModelIds.forEach(id=>selectedModels.add(id));render();};
+$('#clear-selection').onclick=()=>{selectedModels.clear();render();};
+document.addEventListener('change',e=>{if(e.target.matches('[data-select-id]')){const id=e.target.dataset.selectId;e.target.checked?selectedModels.add(id):selectedModels.delete(id);render();}});
+$('#open-bulk').onclick=()=>{$('#bulk-form').reset();$('#bulk-summary').textContent=selectedModels.size+' models selected. Make one update across your collection.';$('#bulk-message').textContent='';$('#bulk-editor').showModal();};
+$('#bulk-form').onsubmit=async e=>{
+ e.preventDefault();const form=e.currentTarget,changes={};
+ for(const key of ['tags_add','tags_remove']){const tags=form.elements[key].value.split(',').map(t=>t.trim()).filter(Boolean);if(tags.length)changes[key]=tags;}
+ if(form.elements.status.value)changes.status=form.elements.status.value;
+ if(form.elements.favorite.value)changes.favorite=form.elements.favorite.value==='true';
+ if(form.elements.change_collection.checked)changes.collection=form.elements.collection.value.trim();
+ if(!Object.keys(changes).length){$('#bulk-message').textContent='Choose at least one field to update.';return;}
+ const button=$('#save-bulk');button.disabled=true;$('#bulk-message').textContent='';
+ try{const result=await api('/api/models/bulk',{method:'POST',body:JSON.stringify({ids:[...selectedModels],changes})});$('#bulk-editor').close();selectionMode=false;selectedModels.clear();await refresh();notify(result.updated+' models updated.');}
+ catch(error){$('#bulk-message').textContent=error.message;}finally{button.disabled=false;}
+};
+async function refreshWatchStatus(){
+ try{const status=await api('/api/watch');$('#review-count').textContent=status.pending;$('#watch-banner').hidden=!status.pending;$('#watch-banner-text').textContent=status.pending+' folder change'+(status.pending===1?'':'s')+' ready to review.';}
+ catch{}
+}
+async function loadReviews(){
+ const [status,result]=await Promise.all([api('/api/watch'),api('/api/watch/review')]);
+ $('#watch-enabled').checked=status.enabled;$('#watch-interval').value=String(status.interval);
+ $('#watch-last-scan').textContent=status.error||('Last checked: '+(status.last_scan?new Date(status.last_scan).toLocaleString():'Waiting for the first scan.'));
+ $('#review-total').textContent=result.items.length+' items';$('#review-select-all').checked=false;
+ $('#review-items').innerHTML=result.items.map(item=>{
+   const p=item.payload;const label=item.kind==='new'?'New model':item.kind==='changed'?'Files changed':'Files missing';
+   const summary=item.kind==='new'?p.files.length+' files ready to import.':item.kind==='changed'?p.previous_count+' linked files before · '+p.files.length+' files now. Your organization will be kept.':'The source files are unavailable. Dismiss to acknowledge and keep the catalog entry.';
+   return `<article class="review-item"><input type="checkbox" class="review-check" value="${item.id}" aria-label="Review ${escapeHTML(p.title)}"><div class="review-item-content"><strong>${escapeHTML(p.title)}</strong><span class="review-kind ${item.kind}">${label}</span><p>${escapeHTML(summary)}</p><small>${escapeHTML(item.folder_key)}</small></div>${p.model_id?`<button class="text-button" data-inbox-model="${p.model_id}">View</button>`:''}</article>`;
+ }).join('')||'<div class="inbox-empty"><h3>You’re all caught up.</h3><p>New files and changes will appear here after your next folder scan.</p></div>';
+ $('#review-count').textContent=status.pending;await refreshWatchStatus();
+ $$('[data-inbox-model]').forEach(b=>b.onclick=()=>{$('#review-dialog').close();openDetail(b.dataset.inboxModel);});
+}
+async function openInbox(){
+ $('#review-message').textContent='';$('#review-dialog').showModal();
+ try{await loadReviews();}catch(error){$('#review-message').textContent=error.message;}
+}
+$('#review-button').onclick=$('#review-banner-button').onclick=openInbox;
+$('#review-select-all').onchange=e=>$$('.review-check').forEach(i=>i.checked=e.target.checked);
+$('#save-watch').onclick=async()=>{
+ try{await api('/api/watch',{method:'PATCH',body:JSON.stringify({enabled:$('#watch-enabled').checked,interval:Number($('#watch-interval').value)})});notify('Folder watching preferences saved.');}
+ catch(error){$('#review-message').textContent=error.message;}
+};
+$('#watch-scan-now').onclick=async()=>{const b=$('#watch-scan-now');b.disabled=true;b.textContent='Scanning…';$('#review-message').textContent='';try{await api('/api/watch/scan',{method:'POST',body:'{}'});await loadReviews();}catch(error){$('#review-message').textContent=error.message;}finally{b.disabled=false;b.textContent='Scan now';}};
+async function reviewSelection(action){
+ const ids=$$('.review-check:checked').map(i=>Number(i.value));if(!ids.length){$('#review-message').textContent='Select items to review first.';return;}
+ $('#approve-review').disabled=$('#ignore-review').disabled=true;$('#review-message').textContent='';
+ try{const result=await api('/api/watch/review',{method:'POST',body:JSON.stringify({ids,action})});await refresh();await loadReviews();notify(result.reviewed+' changes '+(action==='approve'?'reviewed.':'dismissed.'));}
+ catch(error){$('#review-message').textContent=error.message;}finally{$('#approve-review').disabled=$('#ignore-review').disabled=false;}
+}
+$('#approve-review').onclick=()=>reviewSelection('approve');$('#ignore-review').onclick=()=>reviewSelection('ignore');
+function renderDuplicates(result){
+ const state=result.state;$('#scan-duplicates').disabled=state.running;
+ $('#duplicate-progress').textContent=state.running?'Checking '+state.processed+' of '+state.total+' files…':state.completed_at?'Checked '+state.total+' files'+(state.errors?' · '+state.errors+' unavailable':'')+' · '+result.groups.length+' duplicate groups':'Ready to compare file contents.';
+ $('#duplicate-groups').innerHTML=result.groups.map((group,index)=>`<section class="duplicate-group"><header><strong>Match ${index+1} · ${group.files.length} identical files</strong><small>${bytes(group.extra_bytes)} in extra copies</small></header>${group.files.map(f=>`<div class="duplicate-file"><img src="/api/models/${f.model_id}/thumbnail" alt="" loading="lazy"><div><strong>${escapeHTML(f.title)}</strong><small>${escapeHTML(f.name)} · ${bytes(f.size)}</small></div><button data-duplicate-model="${f.model_id}">View model ↗</button></div>`).join('')}</section>`).join('')||(!state.running&&state.completed_at?'<div class="inbox-empty"><h3>No identical files found.</h3><p>Your indexed model files are unique.</p></div>':'');
+ $$('[data-duplicate-model]').forEach(b=>b.onclick=()=>{$('#duplicates-dialog').close();openDetail(b.dataset.duplicateModel);});
+ clearTimeout(duplicatePoll);if(state.running&&$('#duplicates-dialog').open)duplicatePoll=setTimeout(loadDuplicates,1500);
+}
+async function loadDuplicates(){try{renderDuplicates(await api('/api/duplicates'));}catch(error){$('#duplicate-message').textContent=error.message;}}
+async function openDuplicates(){$('#duplicate-message').textContent='';$('#duplicates-dialog').showModal();await loadDuplicates();}
+$('#duplicates-button').onclick=openDuplicates;
+$('#scan-duplicates').onclick=async()=>{try{$('#duplicate-message').textContent='';renderDuplicates(await api('/api/duplicates/scan',{method:'POST',body:'{}'}));}catch(error){$('#duplicate-message').textContent=error.message;}};
+$('#duplicates-dialog').addEventListener('close',()=>clearTimeout(duplicatePoll));
+const libraryTools=document.createElement('div');libraryTools.className='settings-card';libraryTools.innerHTML='<h3>Library tools</h3><p>Review new files and folder changes, or find identical model files.</p><button class="button secondary" id="settings-inbox">Open import inbox</button><button class="button secondary" id="settings-duplicates">Find duplicates</button>';
+$('#settings').append(libraryTools);$('#settings-inbox').onclick=()=>{$('#settings').close();openInbox();};$('#settings-duplicates').onclick=()=>{$('#settings').close();openDuplicates();};
+setInterval(refreshWatchStatus,30000);
+
 refresh();
