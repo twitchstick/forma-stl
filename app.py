@@ -25,6 +25,8 @@ from previews import cached_preview
 from library_services import LibraryServices
 from makerworld_import import MakerWorldBridge
 from catalog_tools import register_catalog_tools
+from source_import import SourceImports
+from source_metadata import parse_source, web_url
 
 ROOT = Path(__file__).resolve().parent
 MODELS = {'.stl', '.3mf', '.obj', '.step', '.stp', '.zip'}
@@ -144,6 +146,9 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
           sha256 TEXT NOT NULL DEFAULT '', external INTEGER NOT NULL DEFAULT 0
         );
         ''')
+        model_columns = {r[1] for r in c.execute('PRAGMA table_info(models)')}
+        for name in ('license','license_url','attribution'):
+            if name not in model_columns:c.execute('ALTER TABLE models ADD COLUMN '+name+" TEXT NOT NULL DEFAULT ''")
         columns = {r[1] for r in c.execute('PRAGMA table_info(files)')}
         for name in ('mtime_ns','hash_mtime_ns','hash_size'):
             if name not in columns:
@@ -234,8 +239,11 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         source = str(payload.get('source_url', '')).strip()[:3000]
         if source and (urlsplit(source).scheme not in ('http', 'https') or not urlsplit(source).hostname):
             raise ValueError('Source must be an http or https URL.')
+        license_url = str(payload.get('license_url','')).strip()
+        if license_url and not web_url(license_url):raise ValueError('Use a public http or https license URL.')
         id = str(uuid.uuid4())
         c.execute('INSERT INTO models (id,title,creator,source_url,description,tags,collection,status,favorite,created_at,updated_at,import_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', (id,title,str(payload.get('creator',''))[:300],source,str(payload.get('description',''))[:30000],json.dumps(tags),str(payload.get('collection',''))[:100],status,int(bool(payload.get('favorite',False))),now(),now(),import_key))
+        c.execute('UPDATE models SET license=?,license_url=?,attribution=? WHERE id=?',(str(payload.get('license',''))[:500],license_url,str(payload.get('attribution',''))[:2000],id))
         return id
 
     @app.get('/')
@@ -291,6 +299,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
                 tags = [t for t in tags if t not in remove]
                 if len(tags)>100:
                     raise ValueError('A model cannot have more than 100 tags.')
+                if tags!=old['tags']:c.execute("INSERT OR IGNORE INTO source_locks VALUES (?,'tags')",(id,))
                 c.execute('UPDATE models SET tags=?,collection=?,status=?,favorite=?,updated_at=? WHERE id=?',
                           (json.dumps(tags),changes.get('collection',old['collection']).strip(),changes.get('status',old['status']),int(changes.get('favorite',old['favorite'])),now(),id))
         return jsonify(updated=len(set(ids)))
@@ -300,12 +309,13 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         payload = request.get_json()
         with db() as c:
             old = model(c,id)
-            allowed = {'title','creator','source_url','description','tags','collection','status','favorite'}
+            allowed = {'title','creator','source_url','description','tags','collection','status','favorite','license','license_url','attribution'}
             merged = {**old, **{k:v for k,v in payload.items() if k in allowed}}
             # Validate with the same rules without replacing the record or its files.
             temp_id = insert_model(c, merged)
             clean = c.execute('SELECT * FROM models WHERE id=?', (temp_id,)).fetchone()
-            columns = ['title','creator','source_url','description','tags','collection','status','favorite']
+            columns = ['title','creator','source_url','description','tags','collection','status','favorite','license','license_url','attribution']
+            app.extensions['source_imports'].mark_edits(c,id,old,clean)
             c.execute('UPDATE models SET '+','.join(k+'=?' for k in columns)+',updated_at=? WHERE id=?', tuple(clean[k] for k in columns)+(now(),id))
             c.execute('DELETE FROM models WHERE id=?',(temp_id,))
             if 'cover_id' in payload:
@@ -334,6 +344,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
 
     services = LibraryServices(db,library,uploads,MODELS,IMAGES,insert_model,add_file,now)
     app.extensions['library_services'] = services
+    app.extensions['source_imports'] = SourceImports(app,db,data,library,model,add_file,lambda *args:fetch_public(*args),now)
     app.extensions['makerworld_bridge'] = MakerWorldBridge(app,db,data,insert_model,add_file,model,fetch_public,now)
 
     register_catalog_tools(app,db,data,library,model,now)
@@ -440,11 +451,8 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             body, content_type, final_url = fetch_public(url)
             if content_type not in ('text/html','application/xhtml+xml'):
                 raise ValueError('This URL is not an HTML model page.')
-            parser = MetadataParser()
-            parser.feed(body.decode('utf-8', errors='replace'))
-            m = parser.meta
-            images = [urljoin(final_url,m[k]) for k in ('og:image','twitter:image') if m.get(k)]
-            return jsonify(title=m.get('og:title') or m.get('twitter:title') or parser.title.strip(),description=m.get('og:description') or m.get('description',''),creator=m.get('author',''),source_url=url,image_url=next(iter(images),''),tags=[t.strip() for t in m.get('keywords','').split(',') if t.strip()][:20])
+            result=parse_source(body,final_url);result['source_url']=url
+            return jsonify(result)
         except Exception as exc:
             return jsonify(error='This site did not share readable metadata. You can still save its link and add a title and photo yourself.', source_url=url), 422
 

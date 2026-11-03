@@ -17,6 +17,7 @@ from flask import abort, g, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 from previews import normalize_image
 from website_import import normalize_website_item, identity
+from source_metadata import source_fields
 
 PHOTO_HOSTS = ('bblmw.com','makerworld.com','bambulab.com')
 MAX_ITEMS = 500
@@ -37,6 +38,7 @@ def normalize_item(item):
     if item.get('provider') in ('printables','cults3d','thangs'):
         result=normalize_website_item(item)
         result['image_url']=safe_photo_url(result['image_url'],website=True)
+        result.update(source_fields(item))
         return result
     if item.get('provider') not in (None,'makerworld'):
         raise ValueError('Unsupported model website.')
@@ -60,7 +62,7 @@ def normalize_item(item):
     profile = str(item.get('profile_id',''))
     if profile and not re.fullmatch(r'\d{1,20}',profile):
         raise ValueError('Invalid print profile ID.')
-    return {'id':remote_id,'title':title,'creator':str(item.get('creator',''))[:300],
+    return {**source_fields(item),'id':remote_id,'title':title,'creator':str(item.get('creator',''))[:300],
             'source_url':'https://makerworld.com/en/models/'+remote_id,
             'description':str(item.get('description',''))[:30000],
             'tags':list(dict.fromkeys(str(t).strip()[:80] for t in tags if str(t).strip()))[:100],
@@ -350,7 +352,7 @@ class MakerWorldBridge:
                         else:
                             linked+=1
                             # Enrich a local file's empty source fields without replacing edits.
-                            c.execute("UPDATE models SET source_url=CASE WHEN source_url='' THEN ? ELSE source_url END,creator=CASE WHEN creator='' THEN ? ELSE creator END,description=CASE WHEN description='' THEN ? ELSE description END WHERE id=?",(item['source_url'],item['creator'],item['description'],model_id))
+                            c.execute("UPDATE models SET source_url=CASE WHEN source_url='' THEN ? ELSE source_url END,creator=CASE WHEN creator='' AND NOT EXISTS(SELECT 1 FROM source_locks WHERE model_id=models.id AND field='creator') THEN ? ELSE creator END,description=CASE WHEN description='' AND NOT EXISTS(SELECT 1 FROM source_locks WHERE model_id=models.id AND field='description') THEN ? ELSE description END WHERE id=?",(item['source_url'],item['creator'],item['description'],model_id))
                         c.execute('INSERT OR IGNORE INTO makerworld_sources(remote_id,model_id,profile_id) VALUES (?,?,?)',(item['id'],model_id,item['profile_id']))
                         for collection in item['collections']:
                             c.execute('INSERT INTO makerworld_memberships VALUES (?,?,?) ON CONFLICT(model_id,remote_collection) DO UPDATE SET name=excluded.name',(model_id,collection['id'],collection['name']))
@@ -367,9 +369,13 @@ class MakerWorldBridge:
                 for path in copied:path.unlink(missing_ok=True)
                 raise
             shutil.rmtree(self.staging/id,ignore_errors=True)
+            queued=0
             for model_id,item in photos:
-                if item.get('image_url'):self.photo_jobs.submit(self.attach_photo,model_id,item)
-            return jsonify(created=created,linked=linked,files=len(copied),photos_queued=sum(bool(i.get('image_url')) for _,i in photos))
+                try:
+                    self.app.extensions['source_imports'].enqueue(model_id,item,fetch_page=False)
+                    queued+=len(item.get('image_urls',[]))
+                except Exception:self.app.logger.info('Source gallery import could not be queued for model %s',model_id)
+            return jsonify(created=created,linked=linked,files=len(copied),photos_queued=queued)
 
         @app.delete('/api/makerworld/batches/<id>')
         def dismiss_batch(id):

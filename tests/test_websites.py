@@ -14,6 +14,7 @@ class WebsiteTests(unittest.TestCase):
         self.headers={'X-Forma-Request':'1'}
 
     def tearDown(self):
+        self.app.extensions['source_imports'].executor.shutdown(wait=True)
         self.app.extensions['makerworld_bridge'].photo_jobs.shutdown(wait=True)
         self.temp.cleanup()
 

@@ -16,6 +16,7 @@ class CatalogToolsTests(unittest.TestCase):
         self.model=self.c.post('/api/models',json={'title':'Test box'},headers=self.h).json
 
     def tearDown(self):
+        self.app.extensions['source_imports'].executor.shutdown(wait=True)
         self.app.extensions['makerworld_bridge'].photo_jobs.shutdown(wait=True);self.temp.cleanup()
 
     def printer(self):

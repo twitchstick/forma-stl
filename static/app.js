@@ -2,7 +2,7 @@
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let models = [], view = 'all', activeTag = '', activeCollection = '', editingId = null, remoteImage = '', listMode = false, toastTimer;
+let models = [], view = 'all', activeTag = '', activeCollection = '', editingId = null, remoteImage = '', remoteImages = [], listMode = false, toastTimer;
 const draftCollections = new Set();
 const selectedModels = new Set();
 let selectionMode=false, visibleModelIds=[], duplicatePoll=null;
@@ -75,14 +75,14 @@ function render() {
  watchPreviewErrors($('#model-grid'));
 }
 function openEditor(id=null,importing=false) {
- editingId=id; remoteImage='';
+ editingId=id; remoteImage='';remoteImages=[];
  const form=$('#model-form'); form.reset();
  $('#editor-title').textContent=id?'Edit model':'Add a model';
  $('#save-model').textContent=id?'Save changes':'Save to library';
  $('#import-section').hidden=!importing;
  $('#import-url').value=''; $('#import-message').textContent=''; $('#editor-message').textContent=''; $('#file-summary').textContent='Choose files or drop them here';
  const m=models.find(x=>x.id===id);
- if(m) { for(const k of ['title','creator','source_url','description','collection','status']) form.elements[k].value=m[k]||''; form.elements.tags.value=m.tags.join(', '); form.elements.favorite.checked=m.favorite; }
+ if(m) { for(const k of ['title','creator','source_url','description','collection','status','license','license_url','attribution']) form.elements[k].value=m[k]||''; form.elements.tags.value=m.tags.join(', '); form.elements.favorite.checked=m.favorite; }
  else if(activeCollection) form.elements.collection.value=activeCollection;
  if($('#detail').open) $('#detail').close();
  $('#editor').showModal();
@@ -95,8 +95,8 @@ async function getMetadata() {
  $('#model-form').elements.source_url.value=input.value;
  try {
  const m=await api('/api/metadata',{method:'POST',body:JSON.stringify({url:input.value})});
- const form=$('#model-form'); for(const k of ['title','creator','description','source_url']) if(m[k]) form.elements[k].value=m[k];
- form.elements.tags.value=(m.tags||[]).join(', '); remoteImage=m.image_url||'';
+ const form=$('#model-form'); for(const k of ['title','creator','description','source_url','license','license_url','attribution']) if(m[k]) form.elements[k].value=m[k];
+ form.elements.tags.value=(m.tags||[]).join(', '); remoteImage=m.image_url||'';remoteImages=m.image_urls|| (remoteImage?[remoteImage]:[]);
  $('#import-message').textContent=remoteImage?'Details found. The source photo will be saved when you add the model.':'Details found. Add a cover photo below to make it yours.';
  } catch(error) { $('#import-message').textContent=error.message; }
  finally {button.disabled=false;button.textContent='Get details ↗';}
@@ -105,7 +105,7 @@ async function saveModel(event) {
  event.preventDefault(); const form=event.currentTarget, button=$('#save-model');
  const files=[...$('#upload-files').files];
  if(files.reduce((n,f)=>n+f.size,0)>510*1024*1024) {$('#editor-message').textContent='Upload up to 510 MB at a time. Use the server folder scanner for larger files.';return;}
- const payload={}; for(const k of ['title','creator','source_url','description','collection','status']) payload[k]=form.elements[k].value;
+ const payload={}; for(const k of ['title','creator','source_url','description','collection','status','license','license_url','attribution']) payload[k]=form.elements[k].value;
  payload.tags=form.elements.tags.value.split(',').map(t=>t.trim()).filter(Boolean); payload.favorite=form.elements.favorite.checked;
  button.disabled=true;button.textContent='Saving…';$('#editor-message').textContent='';
  try {
@@ -113,7 +113,7 @@ async function saveModel(event) {
  editingId=m.id; // Retain the saved record if an attachment fails; retry updates it.
  if(files.length) {const fd=new FormData();files.forEach(f=>fd.append('files',f));await api('/api/models/'+m.id+'/files',{method:'POST',body:fd});$('#upload-files').value='';}
  let warning='';
- if(remoteImage) {try {await api('/api/models/'+m.id+'/remote-image',{method:'POST',body:JSON.stringify({url:remoteImage})});remoteImage='';}catch(error){warning='Model saved. The source photo could not be fetched; add it using Edit.';}}
+ if(remoteImages.length) {try {await api('/api/models/'+m.id+'/source-import',{method:'POST',body:JSON.stringify({image_urls:remoteImages})});remoteImage='';remoteImages=[];}catch(error){warning='Model saved. Source photos could not be queued. Use Retry source import in its details.';}}
  $('#editor').close(); await refresh();notify(warning||'A new idea, safely on your shelf.'); openDetail(m.id);
  } catch(error) {$('#editor-message').textContent=error.message+(editingId?' Your catalog entry is saved; retry to finish attaching files.':''); await refresh();}
  finally {button.disabled=false;button.textContent=editingId?'Save changes':'Save to library';}
@@ -131,6 +131,7 @@ function openDetail(id) {
  $$('[data-photo]').forEach(b=>b.onclick=()=>{const img=$('#detail-cover');img.src='/api/files/'+b.dataset.photo;$('#set-cover').hidden=false;$('#set-cover').onclick=async()=>{try {await api('/api/models/'+m.id,{method:'PATCH',body:JSON.stringify({cover_id:b.dataset.photo})});await refresh();openDetail(m.id);notify('Cover photo updated.');}catch(error){notify(error.message);}};});
  if(!$('#detail').open)$('#detail').showModal();
  if(typeof loadCatalogDetails==='function')loadCatalogDetails(id);
+ if(typeof loadSourceImport==='function')loadSourceImport(id);
  watchPreviewErrors($('#detail'));
 }
 async function toggleFavorite(id){try{const m=models.find(m=>m.id===id);await api('/api/models/'+id,{method:'PATCH',body:JSON.stringify({favorite:!m.favorite})});await refresh();}catch(error){notify(error.message);}}
