@@ -29,13 +29,13 @@ docker build -t forma:local .
 mkdir -p /mnt/user/appdata/forma
 ```
 
-Change `/mnt/user/3d-printing` below to the **existing share holding your model files**. Keep the `:ro` suffix. The example port is 8085; change the left side if it is in use.
+Change `/mnt/user/3d-printing` below to the **existing share holding your model files**. Keep the `:ro` suffix. The example port is 8086; change the left side if it is in use.
 
 ```sh
 docker run -d \
   --name forma \
   --restart unless-stopped \
-  -p 8085:8080 \
+  -p 8086:8080 \
   -v /mnt/user/appdata/forma:/data \
   -v /mnt/user/3d-printing:/library:ro \
   -e FORMA_USERNAME=admin \
@@ -47,7 +47,7 @@ docker run -d \
   forma:local
 ```
 
-Open `http://YOUR-UNRAID-IP:8085` and sign in with the username/password you set. Use **Import server folder** to catalog your existing share, **Add model** for uploads, or **Import from URL** for a source page.
+Open `http://YOUR-UNRAID-IP:8086` and sign in with the username/password you set. Use **Import server folder** to catalog your existing share, **Add model** for uploads, or **Import from URL** for a source page.
 
 ### Unraid Docker template
 
@@ -71,6 +71,10 @@ docker compose up -d --build
 The SQLite database should live on a local Unraid pool/disk, not a remote SMB/NFS mount. The container runs as root by default for simple Unraid volume compatibility. If you set a Docker `--user` or Compose `user`, make the `/data` folder writable by that UID/GID first. There are no `PUID`/`PGID` variables.
 
 Keep the app on your trusted LAN, VPN, or HTTPS reverse proxy. HTTP Basic authentication does not encrypt traffic; use HTTPS for remote access. Leaving `FORMA_PASSWORD` empty disables sign-in. CSRF checks require same-origin browser requests and the `X-Forma-Request: 1` header for API writes.
+
+## App icon
+
+Forma uses the layered cube icon in its sidebar and browser tab. The Unraid container label `net.unraid.docker.icon` and template `Icon` point to `http://192.168.1.194:8086/static/app-icon.png`. If your server IP or web port changes, update this URL too (or set `FORMA_ICON_URL` for Compose). This one static logo is readable without signing in so Unraid can cache it; catalog data and other routes still require sign-in when a password is configured.
 
 ## Backups and recovery
 

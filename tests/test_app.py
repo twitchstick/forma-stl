@@ -134,6 +134,18 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/models').status_code,401)
             self.assertEqual(self.client.get('/api/models',headers={'Authorization':'Basic bWU6dGVzdC1wYXNzd29yZA=='}).status_code,200)
 
+    def test_unraid_icon_is_public_but_catalog_stays_protected(self):
+        with patch.dict(os.environ,{'FORMA_PASSWORD':'test-password'}):
+            with self.client.get('/static/app-icon.png') as response:
+                self.assertEqual(response.status_code,200)
+                self.assertEqual(response.mimetype,'image/png')
+                self.assertTrue(response.data.startswith(b'\x89PNG'))
+            with self.client.head('/static/app-icon.png') as response:
+                self.assertEqual(response.status_code,200)
+            self.assertEqual(self.client.get('/api/models').status_code,401)
+            self.assertEqual(self.client.get('/').status_code,401)
+            self.assertEqual(self.client.get('/static/app.js').status_code,401)
+
 
 if __name__ == '__main__':
     unittest.main()

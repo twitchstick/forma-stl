@@ -5,7 +5,7 @@ services:
     container_name: forma
     restart: unless-stopped
     ports:
-      - "8085:8080"
+      - "8086:8080"
     environment:
       FORMA_USERNAME: "${FORMA_USERNAME:-admin}"
       FORMA_PASSWORD: "${FORMA_PASSWORD:-}"
@@ -14,6 +14,7 @@ services:
       - /mnt/user/3d-printing:/library:ro
     labels:
       net.unraid.docker.managed: dockerman
+      net.unraid.docker.icon: "${FORMA_ICON_URL:-http://192.168.1.194:8086/static/app-icon.png}"
       net.unraid.docker.webui: "http://[IP]:[PORT:8080]/"
     logging:
       driver: json-file

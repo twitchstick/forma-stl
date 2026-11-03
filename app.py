@@ -158,6 +158,9 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
 
     @app.before_request
     def protect():
+        # Docker Manager downloads this non-sensitive logo without browser auth.
+        if request.path == '/static/app-icon.png' and request.method in ('GET','HEAD'):
+            return
         password = os.environ.get('FORMA_PASSWORD', '')
         if password:
             auth = request.authorization
