@@ -50,7 +50,7 @@ function render() {
  $('#collections').innerHTML=collections.map(name=>`<button class="collection-item ${view==='collection'&&activeCollection===name?'active':''}" data-collection="${escapeHTML(name)}"><span class="folder">▱</span>${escapeHTML(name)}<b>${models.filter(m=>modelCollections(m).includes(name)).length}</b></button>`).join('')||'<div class="collection-empty">Your collections will live here</div>';
  $('#collection-options').innerHTML=collections.map(name=>`<option value="${escapeHTML(name)}"></option>`).join('');
  const previousSource=$('#source-filter').value;
- $('#source-filter').innerHTML='<option value="">All sources</option>'+[...new Set(models.map(sourceName))].sort().map(s=>`<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join('');
+ $('#source-filter').innerHTML='<option value="">All sources</option>'+[...new Set([...models.map(sourceName),...(previousSource?[previousSource]:[])])].sort().map(s=>`<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join('');
  $('#source-filter').value=previousSource;
  const names={all:'Your model library',favorites:'Your favorites',queue:'The print list',printed:'Brought to life',collection:activeCollection};
  $('#page-title').innerHTML=escapeHTML(names[view]||names.all)+'<span>.</span>';
@@ -130,6 +130,7 @@ function openDetail(id) {
  };
  $$('[data-photo]').forEach(b=>b.onclick=()=>{const img=$('#detail-cover');img.src='/api/files/'+b.dataset.photo;$('#set-cover').hidden=false;$('#set-cover').onclick=async()=>{try {await api('/api/models/'+m.id,{method:'PATCH',body:JSON.stringify({cover_id:b.dataset.photo})});await refresh();openDetail(m.id);notify('Cover photo updated.');}catch(error){notify(error.message);}};});
  if(!$('#detail').open)$('#detail').showModal();
+ if(typeof loadCatalogDetails==='function')loadCatalogDetails(id);
  watchPreviewErrors($('#detail'));
 }
 async function toggleFavorite(id){try{const m=models.find(m=>m.id===id);await api('/api/models/'+id,{method:'PATCH',body:JSON.stringify({favorite:!m.favorite})});await refresh();}catch(error){notify(error.message);}}

@@ -20,6 +20,7 @@ jobs:
       - run: node tests/test_makerworld_client.cjs
       - run: npm install --no-save --ignore-scripts jsdom@26.1.0
       - run: node tests/test_websites_client.cjs
+      - run: node tests/test_catalog_client.cjs
       - name: Build Docker image
         run: docker build -t forma:test .
       - name: Check container startup

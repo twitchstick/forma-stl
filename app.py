@@ -24,6 +24,7 @@ from werkzeug.utils import secure_filename
 from previews import cached_preview
 from library_services import LibraryServices
 from makerworld_import import MakerWorldBridge
+from catalog_tools import register_catalog_tools
 
 ROOT = Path(__file__).resolve().parent
 MODELS = {'.stl', '.3mf', '.obj', '.step', '.stp', '.zip'}
@@ -334,6 +335,8 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     services = LibraryServices(db,library,uploads,MODELS,IMAGES,insert_model,add_file,now)
     app.extensions['library_services'] = services
     app.extensions['makerworld_bridge'] = MakerWorldBridge(app,db,data,insert_model,add_file,model,fetch_public,now)
+
+    register_catalog_tools(app,db,data,library,model,now)
 
     @app.get('/api/watch')
     def watch_status():
