@@ -116,6 +116,9 @@ class MakerWorldTests(unittest.TestCase):
         self.assertEqual(review['items'][0]['existing_model_id'],old['id'])
         r=self.apply(batch);self.assertEqual(r.json['created'],0);self.assertEqual(r.json['files'],0)
         self.assertEqual(len(self.client.get('/api/models').json),1)
+        model=self.client.get('/api/models').json[0]
+        self.assertEqual(model['source_url'],'https://makerworld.com/en/models/123')
+        self.assertEqual(model['creator'],'Designer')
 
     def test_revocation_and_device_isolation(self):
         batch=self.stage()

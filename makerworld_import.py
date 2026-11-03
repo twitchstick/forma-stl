@@ -324,7 +324,10 @@ class MakerWorldBridge:
                         if not model_id:
                             model_id=self.insert_model(c,{**item,'collection':''})
                             created+=1
-                        else:linked+=1
+                        else:
+                            linked+=1
+                            # Enrich a local file's empty source fields without replacing edits.
+                            c.execute("UPDATE models SET source_url=CASE WHEN source_url='' THEN ? ELSE source_url END,creator=CASE WHEN creator='' THEN ? ELSE creator END,description=CASE WHEN description='' THEN ? ELSE description END WHERE id=?",(item['source_url'],item['creator'],item['description'],model_id))
                         c.execute('INSERT OR IGNORE INTO makerworld_sources(remote_id,model_id,profile_id) VALUES (?,?,?)',(item['id'],model_id,item['profile_id']))
                         for collection in item['collections']:
                             c.execute('INSERT INTO makerworld_memberships VALUES (?,?,?) ON CONFLICT(model_id,remote_collection) DO UPDATE SET name=excluded.name',(model_id,collection['id'],collection['name']))
