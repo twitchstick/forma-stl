@@ -21,6 +21,7 @@ from urllib.parse import urljoin, urlsplit
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
+from previews import cached_preview
 
 ROOT = Path(__file__).resolve().parent
 MODELS = {'.stl', '.3mf', '.obj', '.step', '.stp', '.zip'}
@@ -308,6 +309,25 @@ def create_app(data_dir=None, library_dir=None):
         if not path.is_relative_to(root) or not path.is_file():
             abort(404, 'File no longer exists at its original location.')
         return send_file(path, as_attachment=f['kind'] != 'image' or request.args.get('download') == '1', download_name=f['name'], conditional=True)
+
+    @app.get('/api/models/<id>/thumbnail')
+    def thumbnail(id):
+        with db() as c:
+            model(c, id)
+            files = [dict(f) for f in c.execute('SELECT * FROM files WHERE model_id=? AND kind=?',(id,'model'))]
+        priority = {'.3mf':0,'.stl':1,'.obj':2,'.zip':3}
+        files.sort(key=lambda f:priority.get(Path(f['name']).suffix.lower(),99))
+        for f in files:
+            path = Path(f['path']).resolve()
+            root = library if f['external'] else uploads
+            if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() not in priority:
+                continue
+            try:
+                preview = cached_preview(path,data/'thumbnails')
+                return send_file(preview,mimetype='image/png',conditional=True)
+            except ValueError:
+                continue
+        abort(404, 'No preview is available for this model. Add a cover photo using Edit model.')
 
     @app.post('/api/metadata')
     def metadata():

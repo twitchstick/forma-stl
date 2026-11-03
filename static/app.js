@@ -6,6 +6,22 @@ let models = [], view = 'all', activeTag = '', activeCollection = '', editingId 
 const draftCollections = new Set();
 const sourceName = m => { try { return new URL(m.source_url).hostname.replace(/^www\./,''); } catch { return 'Local files'; } };
 const prettySource = m => sourceName(m).replace(/\.(com|org|net)$/,'');
+const canPreview = m => m.files.some(f=>/\.(3mf|stl|obj|zip)$/i.test(f.name));
+function previewMarkup(m, className, detail=false) {
+ const url=m.cover_id?'/api/files/'+m.cover_id:canPreview(m)?'/api/models/'+m.id+'/thumbnail':'';
+ return url?`<img class="${className}" ${detail?'id="detail-cover"':''} data-model-image="${m.id}" data-photo-cover="${m.cover_id?'1':'0'}" src="${url}" alt="${escapeHTML(m.title)}" ${detail?'':'loading="lazy"'}>`:`<div class="${className} image-placeholder" ${detail?'id="detail-cover"':''}><span>⬡</span><small>No model preview · add a photo</small></div>`;
+}
+function watchPreviewErrors(root=document) {
+ root.querySelectorAll('[data-model-image]').forEach(img=>{
+   img.addEventListener('error',()=>{
+     const m=models.find(m=>m.id===img.dataset.modelImage);
+     if(img.dataset.photoCover==='1'&&m&&canPreview(m)){img.dataset.photoCover='0';img.src='/api/models/'+m.id+'/thumbnail';return;}
+     const replacement=document.createElement('div');replacement.className=img.className+' image-placeholder';
+     if(img.id)replacement.id=img.id;
+     replacement.innerHTML='<span>⬡</span><small>Preview unavailable · add a photo</small>';img.replaceWith(replacement);
+   });
+ });
+}
 const bytes = n => n >= 1073741824 ? (n/1073741824).toFixed(1)+' GB' : n >= 1048576 ? (n/1048576).toFixed(1)+' MB' : n >= 1024 ? Math.round(n/1024)+' KB' : n+' B';
 function notify(message) { $('#toast').textContent=message; $('#toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').hidden=true,4500); }
 async function api(path, options={}) {
@@ -49,10 +65,9 @@ function render() {
  $('#model-grid').classList.toggle('list-mode',listMode);
  $('#model-grid').innerHTML=filtered.map(m=>{
  const count=m.files.filter(f=>f.kind==='model').length;
- return `<article class="model-card"><button class="card-open" data-open="${m.id}" aria-label="Open ${escapeHTML(m.title)}">${m.cover_id?`<img class="card-image" src="/api/files/${m.cover_id}" alt="${escapeHTML(m.title)}" loading="lazy">`:`<div class="card-image image-placeholder"><span>⬡</span><small>YOUR NEXT GREAT PRINT</small></div>`}<div class="card-body"><div class="card-meta"><span class="source-label">${escapeHTML(prettySource(m).toUpperCase())}</span><span class="status-pill ${m.status==='Printed'?'printed':''}">${m.status==='Printed'?'✓ ':''}${escapeHTML(m.status)}</span></div><h3>${escapeHTML(m.title)}</h3><div class="creator">${escapeHTML(m.creator?'by '+m.creator:'Your personal collection')}</div><div class="card-tags">${m.tags.slice(0,3).map(t=>`<span>${escapeHTML(t)}</span>`).join('')}${m.tags.length>3?`<span>+${m.tags.length-3}</span>`:''}</div></div></button><button class="favorite-button ${m.favorite?'is-favorite':''}" data-favorite="${m.id}" aria-label="${m.favorite?'Remove from':'Add to'} favorites">${m.favorite?'♥':'♡'}</button><div class="card-footer"><span>▱ &nbsp; ${count} file${count===1?'':'s'}</span><span>${escapeHTML(new Date(m.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</span></div></article>`;
+ return `<article class="model-card"><button class="card-open" data-open="${m.id}" aria-label="Open ${escapeHTML(m.title)}">${previewMarkup(m,"card-image")}<div class="card-body"><div class="card-meta"><span class="source-label">${escapeHTML(prettySource(m).toUpperCase())}</span><span class="status-pill ${m.status==='Printed'?'printed':''}">${m.status==='Printed'?'✓ ':''}${escapeHTML(m.status)}</span></div><h3>${escapeHTML(m.title)}</h3><div class="creator">${escapeHTML(m.creator?'by '+m.creator:'Your personal collection')}</div><div class="card-tags">${m.tags.slice(0,3).map(t=>`<span>${escapeHTML(t)}</span>`).join('')}${m.tags.length>3?`<span>+${m.tags.length-3}</span>`:''}</div></div></button><button class="favorite-button ${m.favorite?'is-favorite':''}" data-favorite="${m.id}" aria-label="${m.favorite?'Remove from':'Add to'} favorites">${m.favorite?'♥':'♡'}</button><div class="card-footer"><span>▱ &nbsp; ${count} file${count===1?'':'s'}</span><span>${escapeHTML(new Date(m.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</span></div></article>`;
  }).join('');
- // Broken source photos still leave the model accessible.
- $$('.card-image[src]').forEach(img=>img.addEventListener('error',()=>{img.alt='Photo unavailable · add a replacement in Edit';},{once:true}));
+ watchPreviewErrors($('#model-grid'));
 }
 function openEditor(id=null,importing=false) {
  editingId=id; remoteImage='';
@@ -101,7 +116,7 @@ async function saveModel(event) {
 function openDetail(id) {
  const m=models.find(x=>x.id===id);if(!m)return;
  const images=m.files.filter(f=>f.kind==='image'), files=m.files.filter(f=>f.kind!=='image');
- $('#detail-content').innerHTML=`<div class="detail-top">${m.cover_id?`<img class="detail-cover" id="detail-cover" src="/api/files/${m.cover_id}" alt="${escapeHTML(m.title)}">`:`<div class="detail-cover image-placeholder" id="detail-cover"><span>⬡</span><small>Add a photo using Edit model</small></div>`}<button class="close" data-close aria-label="Close">×</button></div><div class="detail-body"><div class="detail-heading"><div><div class="eyebrow">${escapeHTML(prettySource(m).toUpperCase())}</div><h2>${escapeHTML(m.title)}</h2><div class="creator">${escapeHTML(m.creator?'by '+m.creator:'Your personal collection')}${m.collection?' · '+escapeHTML(m.collection):''}</div></div><div class="detail-actions"><button class="button secondary" id="detail-favorite">${m.favorite?'♥':'♡'}</button><button class="button primary" id="edit-model">Edit model</button></div></div>${images.length?`<div class="detail-gallery">${images.map(f=>`<button data-photo="${f.id}" title="View ${escapeHTML(f.name)}"><img src="/api/files/${f.id}" alt="${escapeHTML(f.name)}"></button>`).join('')}</div><button class="text-button" id="set-cover" hidden>Use this photo as cover</button>`:''}<div class="card-tags"><span class="status-pill ${m.status==='Printed'?'printed':''}">${escapeHTML(m.status)}</span>${m.tags.map(t=>`<span>${escapeHTML(t)}</span>`).join('')}</div><p class="detail-description">${escapeHTML(m.description||'A little inspiration, ready for your notes.')}</p>${m.source_url?`<a class="detail-source" href="${escapeHTML(m.source_url)}" target="_blank" rel="noopener noreferrer">View original model page ↗</a>`:''}<h3 class="file-heading">MODEL FILES · ${files.length}</h3>${files.map(f=>`<div class="detail-file"><span>▱ &nbsp; ${escapeHTML(f.name)}</span><small>${bytes(f.size)}</small><a href="/api/files/${f.id}?download=1" download>Download ↧</a></div>`).join('')||'<p class="muted">No model files yet. Upload downloaded files using Edit model.</p>'}<div class="detail-end"><span>Collected ${escapeHTML(new Date(m.created_at).toLocaleDateString())}</span><button class="danger-button" id="delete-model">Remove from library</button></div></div>`;
+ $('#detail-content').innerHTML=`<div class="detail-top">${previewMarkup(m,"detail-cover",true)}<button class="close" data-close aria-label="Close">×</button></div><div class="detail-body"><div class="detail-heading"><div><div class="eyebrow">${escapeHTML(prettySource(m).toUpperCase())}</div><h2>${escapeHTML(m.title)}</h2><div class="creator">${escapeHTML(m.creator?'by '+m.creator:'Your personal collection')}${m.collection?' · '+escapeHTML(m.collection):''}</div></div><div class="detail-actions"><button class="button secondary" id="detail-favorite">${m.favorite?'♥':'♡'}</button><button class="button primary" id="edit-model">Edit model</button></div></div>${images.length?`<div class="detail-gallery">${images.map(f=>`<button data-photo="${f.id}" title="View ${escapeHTML(f.name)}"><img src="/api/files/${f.id}" alt="${escapeHTML(f.name)}"></button>`).join('')}</div><button class="text-button" id="set-cover" hidden>Use this photo as cover</button>`:''}<div class="card-tags"><span class="status-pill ${m.status==='Printed'?'printed':''}">${escapeHTML(m.status)}</span>${m.tags.map(t=>`<span>${escapeHTML(t)}</span>`).join('')}</div><p class="detail-description">${escapeHTML(m.description||'A little inspiration, ready for your notes.')}</p>${m.source_url?`<a class="detail-source" href="${escapeHTML(m.source_url)}" target="_blank" rel="noopener noreferrer">View original model page ↗</a>`:''}<h3 class="file-heading">MODEL FILES · ${files.length}</h3>${files.map(f=>`<div class="detail-file"><span>▱ &nbsp; ${escapeHTML(f.name)}</span><small>${bytes(f.size)}</small><a href="/api/files/${f.id}?download=1" download>Download ↧</a></div>`).join('')||'<p class="muted">No model files yet. Upload downloaded files using Edit model.</p>'}<div class="detail-end"><span>Collected ${escapeHTML(new Date(m.created_at).toLocaleDateString())}</span><button class="danger-button" id="delete-model">Remove from library</button></div></div>`;
  $('#edit-model').onclick=()=>openEditor(m.id);
  $('#detail-favorite').onclick=async()=>{await toggleFavorite(m.id);openDetail(m.id);};
  $('#delete-model').onclick=async()=>{
@@ -110,6 +125,7 @@ function openDetail(id) {
  };
  $$('[data-photo]').forEach(b=>b.onclick=()=>{const img=$('#detail-cover');img.src='/api/files/'+b.dataset.photo;$('#set-cover').hidden=false;$('#set-cover').onclick=async()=>{try {await api('/api/models/'+m.id,{method:'PATCH',body:JSON.stringify({cover_id:b.dataset.photo})});await refresh();openDetail(m.id);notify('Cover photo updated.');}catch(error){notify(error.message);}};});
  if(!$('#detail').open)$('#detail').showModal();
+ watchPreviewErrors($('#detail'));
 }
 async function toggleFavorite(id){try{const m=models.find(m=>m.id===id);await api('/api/models/'+id,{method:'PATCH',body:JSON.stringify({favorite:!m.favorite})});await refresh();}catch(error){notify(error.message);}}
 function clearFilters() {$('#search').value='';$('#source-filter').value='';$('#status-filter').value='';activeTag='';render();}
