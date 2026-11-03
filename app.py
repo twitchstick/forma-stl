@@ -23,6 +23,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 from previews import cached_preview
 from library_services import LibraryServices
+from makerworld_import import MakerWorldBridge
 
 ROOT = Path(__file__).resolve().parent
 MODELS = {'.stl', '.3mf', '.obj', '.step', '.stp', '.zip'}
@@ -112,6 +113,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     uploads.mkdir(parents=True, exist_ok=True)
     db_path = data / 'forma.sqlite3'
     app.config.update(MAX_CONTENT_LENGTH=512 * 1024 * 1024)
+    app.config['FORMA_LIBRARY_ROOT']=str(library)
 
     @contextmanager
     def db():
@@ -158,6 +160,11 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
 
     @app.before_request
     def protect():
+        if request.path.startswith('/api/companion/'):
+            app.extensions['makerworld_bridge'].authorized_bridge_request()
+            if request.method=='OPTIONS':
+                return ('',204)
+            return
         # Docker Manager downloads this non-sensitive logo without browser auth.
         if request.path == '/static/app-icon.png' and request.method in ('GET','HEAD'):
             return
@@ -181,6 +188,13 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
         if request.path.startswith('/api'):
             response.headers['Cache-Control'] = 'no-store'
+        origin=request.headers.get('Origin','')
+        if request.path.startswith('/api/companion/') and origin.startswith(('chrome-extension://','moz-extension://')):
+            response.headers['Access-Control-Allow-Origin']=origin
+            response.headers['Vary']='Origin'
+            response.headers['Access-Control-Allow-Methods']='GET, POST, OPTIONS'
+            response.headers['Access-Control-Allow-Headers']='Authorization, Content-Type'
+            response.headers['Access-Control-Max-Age']='300'
         return response
 
     @app.errorhandler(Exception)
@@ -200,6 +214,9 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         result['tags'] = json.loads(result['tags'])
         result['favorite'] = bool(result['favorite'])
         result['files'] = [dict(x) for x in c.execute('SELECT id,name,size,kind FROM files WHERE model_id=?', (id,))]
+        result['collections'] = list(dict.fromkeys(([result['collection']] if result['collection'] else [])+[r[0] for r in c.execute('SELECT name FROM makerworld_memberships WHERE model_id=? ORDER BY name',(id,))]))
+        source=c.execute('SELECT remote_id,profile_id FROM makerworld_sources WHERE model_id=?',(id,)).fetchone()
+        result['makerworld'] = dict(source) if source else None
         return result
 
     def insert_model(c, payload, import_key=None):
@@ -316,6 +333,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
 
     services = LibraryServices(db,library,uploads,MODELS,IMAGES,insert_model,add_file,now)
     app.extensions['library_services'] = services
+    app.extensions['makerworld_bridge'] = MakerWorldBridge(app,db,data,insert_model,add_file,model,fetch_public,now)
 
     @app.get('/api/watch')
     def watch_status():

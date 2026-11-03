@@ -15,7 +15,8 @@ A personal, self-hosted STL library for Unraid with dark, light and system appea
 - Import public page metadata (title, description, creator, tags and Open Graph cover image when provided).
 - Scan an existing server folder, read-only. Each containing folder becomes a model with its files and pictures. Root-level files are grouped by filename stem. Repeated scans skip existing imported folders.
 - SQLite persistence, duplicate-source detection, duplicate-attachment detection, JSON catalog export, and downloadable database/upload backups.
-- Optional HTTP Basic sign-in. No cloud account or API key required.
+- MakerWorld browser companion: choose collections or liked models, stage metadata and optional default-profile 3MF files, then approve selected items inside Forma. Multiple collection memberships are preserved.
+- Optional HTTP Basic sign-in. Core catalog features need no cloud account or API key.
 
 **Website imports are best effort.** Some model sites block automated requests or require sign-in. In that case, save the source URL and enter the title and photo manually. Link imports do not download STL files, bypass access controls, or synchronize accounts. Upload files you have downloaded yourself. STL files generally do not contain product photos; Forma keeps images from source pages, uploads, or neighboring files in your model folder.
 
@@ -75,6 +76,37 @@ Keep the app on your trusted LAN, VPN, or HTTPS reverse proxy. HTTP Basic authen
 ## App icon
 
 Forma uses the layered cube icon in its sidebar and browser tab. The Unraid container label `net.unraid.docker.icon` and template `Icon` point to `http://192.168.1.194:8086/static/app-icon.png`. If your server IP or web port changes, update this URL too (or set `FORMA_ICON_URL` for Compose). This one static logo is readable without signing in so Unraid can cache it; catalog data and other routes still require sign-in when a password is configured.
+
+## MakerWorld collections and saved models
+
+Open **MakerWorld import** in Forma.
+
+### Safari (no extension needed)
+
+1. Drag **Send MakerWorld to Forma** from the import dialog to Safari’s Favorites bar.
+2. Sign in normally on MakerWorld and open your collections or a collection page. Click the bookmark.
+3. Use **Load my collections → Read selected collections**, or **Capture loaded models**. The latter captures only page content already loaded: scroll and capture again to include more cards. Partial captures are marked in the review.
+4. Select models, optionally enable default 3MF profiles, and choose **Send selected to Forma**. Review and approve the batch in Forma.
+5. If site policies isolate the tabs or prevent transfer, use **Export selected JSON**, then **Import Safari JSON** in Forma. JSON exports contain catalog metadata and collection memberships, not binary model files. Attach downloaded files separately in this fallback mode.
+
+The Safari bookmark uses only same-origin MakerWorld requests with the existing browser session; it does not read cookies or tokens. The direct handoff verifies the MakerWorld origin, the sending window, and a random request nonce, then stages data through the signed-in Forma tab. No import is automatically approved. Safari transfers up to 256 MB of model files per send. MakerWorld may require verification or block an API request; the loaded-card capture is available without an API call.
+
+### Chrome / Edge (optional companion)
+
+Download the companion ZIP, extract it to a permanent folder, and load it as an unpacked extension (Extensions → Developer mode → Load unpacked). The packaged folder includes the icon and all required scripts; no build step is needed.
+
+1. In Forma, create a pairing code. In the extension tab, enter your Forma address and code, then approve access to that server host.
+2. Sign in normally on makerworld.com in that browser. Click **Load my collections**, choose collections (or paste a collection link), and optionally include liked models.
+3. Review the model list. Choose catalog-only or opt in to each model's default 3MF print profile. Click **Send selected to Forma**.
+4. Follow **Review and approve in Forma**. Review the staged items and warnings, then add the selected models to your library.
+
+Imports are one-way and additive. MakerWorld model IDs and source links prevent repeated catalog entries; indexed exact file hashes can link a downloaded file to an existing local model too. Existing local titles, notes, tags and print state are kept. Source collection memberships are additive and separate from your manually assigned primary collection. Removing a save on MakerWorld does not delete anything in Forma.
+
+The extension reads MakerWorld's session cookie locally only when you request an import. It uses it for authenticated requests to Bambu Lab's API; that session token is never saved by the extension or sent to Forma. Forma stores only hashed pairing/device tokens and normalized import data. A paired device may stage imports and files for its own batches; it cannot approve imports, read the catalog, delete entries or edit existing models through its token. Revoke paired browsers in **MakerWorld import**.
+
+Pairing codes expire after ten minutes and work once. Batches accept up to 500 distinct models, with 256 MB per model file. Downloads are sequential and respect authentication failures and rate limits. Unavailable files are reported and can remain catalog-only. Partial batches can be dismissed; pending or partial batches older than seven days are cleaned up when a new batch arrives. Source photos are loaded server-side from public MakerWorld/Bambu image hosts.
+
+This uses MakerWorld's internal read/download interfaces, which can change. Signed-in private-collection access and Safari site-policy behavior must be validated in the user's signed-in browser. The importer reports site verification/authentication errors and does not bypass them. It does not ask for or change your MakerWorld password, likes, saves or collections. See [companion details and permissions](companion/README.md).
 
 ## Backups and recovery
 

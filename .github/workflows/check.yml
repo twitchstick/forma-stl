@@ -14,6 +14,10 @@ jobs:
           python-version: '3.13'
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tests/test_makerworld_client.cjs
       - name: Build Docker image
         run: docker build -t forma:test .
       - name: Check container startup

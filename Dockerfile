@@ -6,6 +6,8 @@ RUN pip install --no-cache-dir -r requirements.txt && mkdir -p /data /library
 COPY app.py .
 COPY previews.py .
 COPY library_services.py .
+COPY makerworld_import.py .
+COPY companion ./companion
 COPY static ./static
 EXPOSE 8080
 VOLUME ["/data"]

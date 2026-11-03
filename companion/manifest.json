@@ -1,0 +1,13 @@
+{
+  "manifest_version":3,
+  "name":"Forma · MakerWorld Companion",
+  "version":"1.0.0",
+  "description":"Review your MakerWorld collections and saved models, then send selected items to your own Forma library.",
+  "permissions":["storage","cookies"],
+  "host_permissions":["https://makerworld.com/*","https://api.bambulab.com/*","https://*.bblmw.com/*"],
+  "optional_host_permissions":["http://*/*","https://*/*"],
+  "action":{"default_title":"Open Forma importer"},
+  "background":{"service_worker":"background.js"},
+  "icons":{"128":"icon.png"},
+  "content_security_policy":{"extension_pages":"script-src 'self'; object-src 'none'"}
+}
