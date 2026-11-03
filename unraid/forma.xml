@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>forma</Name>
+  <Repository>forma:local</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Overview>Forma: a personal, image-first STL catalog. Build the forma:local image from the repository first. /data holds your catalog and uploads; /library is your existing model share mounted read-only.</Overview>
+  <Category>Productivity:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <ExtraParams>--restart unless-stopped</ExtraParams>
+  <Config Name="Web UI" Target="8080" Default="8085" Mode="tcp" Description="Forma web interface" Type="Port" Display="always" Required="true" Mask="false">8085</Config>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/forma" Mode="rw" Description="SQLite database, uploaded models and images" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/forma</Config>
+  <Config Name="Existing models" Target="/library" Default="/mnt/user/3d-printing" Mode="ro" Description="Change this to your model share. Existing files are never modified." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/3d-printing</Config>
+  <Config Name="Username" Target="FORMA_USERNAME" Default="admin" Mode="" Description="Username for optional HTTP Basic sign-in" Type="Variable" Display="always" Required="false" Mask="false">admin</Config>
+  <Config Name="Password" Target="FORMA_PASSWORD" Default="" Mode="" Description="Set to enable sign-in. Use HTTPS when accessing remotely." Type="Variable" Display="always" Required="false" Mask="true"/>
+</Container>

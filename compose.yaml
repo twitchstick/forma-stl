@@ -1,0 +1,22 @@
+services:
+  forma:
+    build: .
+    image: forma:local
+    container_name: forma
+    restart: unless-stopped
+    ports:
+      - "8085:8080"
+    environment:
+      FORMA_USERNAME: "${FORMA_USERNAME:-admin}"
+      FORMA_PASSWORD: "${FORMA_PASSWORD:-}"
+    volumes:
+      - /mnt/user/appdata/forma:/data
+      - /mnt/user/3d-printing:/library:ro
+    labels:
+      net.unraid.docker.managed: dockerman
+      net.unraid.docker.webui: "http://[IP]:[PORT:8080]/"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
