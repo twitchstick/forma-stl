@@ -215,7 +215,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         result['favorite'] = bool(result['favorite'])
         result['files'] = [dict(x) for x in c.execute('SELECT id,name,size,kind FROM files WHERE model_id=?', (id,))]
         result['collections'] = list(dict.fromkeys(([result['collection']] if result['collection'] else [])+[r[0] for r in c.execute('SELECT name FROM makerworld_memberships WHERE model_id=? ORDER BY name',(id,))]))
-        source=c.execute('SELECT remote_id,profile_id FROM makerworld_sources WHERE model_id=?',(id,)).fetchone()
+        source=c.execute("SELECT remote_id,profile_id FROM makerworld_sources WHERE model_id=? AND remote_id NOT LIKE '%:%'",(id,)).fetchone()
         result['makerworld'] = dict(source) if source else None
         return result
 

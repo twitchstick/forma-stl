@@ -16,23 +16,30 @@ from urllib.parse import urlsplit, quote
 from flask import abort, g, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 from previews import normalize_image
+from website_import import normalize_website_item, identity
 
 PHOTO_HOSTS = ('bblmw.com','makerworld.com','bambulab.com')
 MAX_ITEMS = 500
 
 
-def safe_photo_url(value):
+def safe_photo_url(value, website=False):
     if not value:
         return ''
     p = urlsplit(str(value))
-    if p.scheme!='https' or p.username or p.password or p.port not in (None,443) or not any(p.hostname==h or (p.hostname or '').endswith('.'+h) for h in PHOTO_HOSTS):
-        raise ValueError('Use a MakerWorld image URL.')
+    if p.scheme!='https' or p.username or p.password or p.port not in (None,443) or not p.hostname or (not website and not any(p.hostname==h or (p.hostname or '').endswith('.'+h) for h in PHOTO_HOSTS)):
+        raise ValueError('Use an image URL hosted by a supported model website.')
     return str(value)[:4000]
 
 
 def normalize_item(item):
     if not isinstance(item,dict):
         raise ValueError('Invalid MakerWorld model.')
+    if item.get('provider') in ('printables','cults3d','thangs'):
+        result=normalize_website_item(item)
+        result['image_url']=safe_photo_url(result['image_url'],website=True)
+        return result
+    if item.get('provider') not in (None,'makerworld'):
+        raise ValueError('Unsupported model website.')
     remote_id = str(item.get('id',''))
     if not re.fullmatch(r'\d{1,20}',remote_id):
         raise ValueError('MakerWorld model IDs must be numeric.')
@@ -104,7 +111,7 @@ class MakerWorldBridge:
         return {**dict(row),'items':json.loads(row['payload']),'warnings':json.loads(row['warnings'])}
 
     def image(self,item):
-        url=safe_photo_url(item.get('image_url',''))
+        url=safe_photo_url(item.get('image_url',''),website=bool(item.get('provider')))
         if not url:raise ValueError('No source photo is available.')
         path=self.photos/(hashlib.sha256(url.encode()).hexdigest()+'.png')
         if path.exists():return path
@@ -124,7 +131,7 @@ class MakerWorldBridge:
                 if not m or m['cover_id']:return
                 folder=self.data/'files'/id;folder.mkdir(exist_ok=True)
                 destination=folder/(str(uuid.uuid4())+'.png');shutil.copyfile(source,destination)
-                self.add_file(c,id,'MakerWorld cover.png',destination,'image')
+                self.add_file(c,id,'Website cover.png',destination,'image')
         except Exception:
             # The source link and model stay usable; a user can add a cover later.
             self.app.logger.info('A MakerWorld source photo could not be loaded for model %s',id)
@@ -142,6 +149,12 @@ class MakerWorldBridge:
     def existing(self,c,item,batch_id=None):
         found=c.execute('SELECT model_id FROM makerworld_sources WHERE remote_id=?',(item['id'],)).fetchone()
         if found:return found[0]
+        if item.get('provider'):
+            for row in c.execute("SELECT id,source_url FROM models WHERE source_url != ''"):
+                try:
+                    if identity(row['source_url'],item['provider'])[0]==item['id']:return row['id']
+                except ValueError:pass
+            return None
         for row in c.execute("SELECT id,source_url FROM models WHERE source_url LIKE '%makerworld.com/%'"):
             p=urlsplit(row['source_url'])
             if (p.hostname or '').removeprefix('www.')=='makerworld.com' and re.search(r'/models/'+re.escape(item['id'])+r'(?:\D|$)',p.path):return row['id']
@@ -251,6 +264,12 @@ class MakerWorldBridge:
         def finish_batch(id):
             return jsonify(self.finalize(id,request.get_json().get('warnings',[]),True))
 
+        @app.get('/api/websites/bookmarklet')
+        def website_bookmarklet():
+            source=(Path(app.static_folder)/'website-bookmarklet.js').read_text()
+            source=source.replace('__FORMA_ORIGIN__',json.dumps(request.host_url.rstrip('/')))
+            return jsonify(url='javascript:'+quote(source,safe=''))
+
         @app.get('/api/makerworld/bookmarklet')
         def safari_bookmarklet():
             source=(Path(app.static_folder)/'makerworld-bookmarklet.js').read_text()
@@ -260,7 +279,11 @@ class MakerWorldBridge:
         @app.post('/api/makerworld/browser-batch')
         def safari_batch():
             p=request.get_json()
-            if not isinstance(p,dict) or p.get('format')!='forma-makerworld-v1':raise ValueError('Choose a Forma MakerWorld export.')
+            if not isinstance(p,dict) or p.get('format') not in ('forma-makerworld-v1','forma-websites-v1'):raise ValueError('Choose a Forma website export.')
+            if p.get('format')=='forma-websites-v1':
+                if p.get('has_files'):raise ValueError('Website captures contain catalog metadata only.')
+                if not isinstance(p.get('items'),list) or any(not isinstance(i,dict) or i.get('provider') not in ('printables','cults3d','thangs') for i in p['items']):
+                    raise ValueError('Unsupported website capture.')
             with self.db() as c:
                 device=c.execute("SELECT id FROM companion_devices WHERE name='Safari browser import' AND revoked=1 LIMIT 1").fetchone()
                 if device:device_id=device[0]

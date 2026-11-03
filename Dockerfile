@@ -7,6 +7,7 @@ COPY app.py .
 COPY previews.py .
 COPY library_services.py .
 COPY makerworld_import.py .
+COPY website_import.py .
 COPY companion ./companion
 COPY static ./static
 EXPOSE 8080

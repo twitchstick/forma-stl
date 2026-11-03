@@ -146,3 +146,11 @@ Forma runs Flask behind Waitress, without a JavaScript build step. No data is st
 - [Unraid container management and volume mappings](https://docs.unraid.net/unraid-os/using-unraid-to/run-docker-containers/managing-and-customizing-containers/)
 - [Unraid Docker overview](https://docs.unraid.net/unraid-os/using-unraid-to/run-docker-containers/overview/)
 - [Python SQLite documentation](https://docs.python.org/3.13/library/sqlite3.html)
+
+## Printables, Cults3D, and Thangs (Safari)
+
+Open **Import from website** in Forma and drag **Send website to Forma** to Safari’s Favorites bar. Open a signed-in collection, saved list, or model page on Printables, Cults3D, or Thangs and use the bookmark. Name the collection, scroll/load more cards, and click **Capture loaded models** again. Captures accumulate in that website tab until cleared; uncheck unwanted models. Send the selection to Forma, then review and approve the batch. Safari popup isolation or site security settings can block the direct handoff: use **Export selected JSON** and upload it in Forma instead.
+
+The new bookmark captures browser-visible metadata, not a full account sync. Model pages can provide a description, creator, tags and cover photo when present in their HTML metadata. Collection cards typically provide a title, photo and source link. No credentials are copied. Source photos are fetched without your website session, so private or protected images can fail; add a cover manually in that case. Website layout changes can affect card recognition.
+
+These three importers do not download model files or spend membership credits. Download files normally from the site, then attach them in Forma or use the watched server folder. Imports preserve existing edits and add collection memberships. Duplicate matching is scoped to each website, including Thangs short/full URL variants and Printables URL slug changes. Cults language variants normalize to English; renamed Cults slugs can need manual reconciliation. The optional Chrome/Edge companion remains MakerWorld-only.
