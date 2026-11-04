@@ -24,6 +24,7 @@ jobs:
       - run: node tests/test_source_client.cjs
       - run: node tests/test_collection_schedule_client.cjs
       - run: node tests/test_slicer_client.cjs
+      - run: node tests/test_account_client.cjs
       - name: Build Docker image
         run: docker build -t forma:test .
       - name: Check container startup

@@ -16,7 +16,7 @@ A personal, self-hosted STL library for Unraid with dark, light and system appea
 - Scan an existing server folder, read-only. Each containing folder becomes a model with its files and pictures. Root-level files are grouped by filename stem. Repeated scans skip existing imported folders.
 - SQLite persistence, duplicate-source detection, duplicate-attachment detection, JSON catalog export, and downloadable database/upload backups.
 - MakerWorld browser companion: choose collections or liked models, stage metadata and optional default-profile 3MF files, then approve selected items inside Forma. Multiple collection memberships are preserved.
-- Optional HTTP Basic sign-in. Core catalog features need no cloud account or API key.
+- Account settings with password changes, profile pictures, display names and browser session management. Core catalog features need no cloud account or API key.
 
 **Website imports are best effort.** Some model sites block automated requests or require sign-in. In that case, save the source URL and enter the title and photo manually. Link imports do not download STL files, bypass access controls, or synchronize accounts. Upload files you have downloaded yourself. STL files generally do not contain product photos; Forma keeps images from source pages, uploads, or neighboring files in your model folder.
 
@@ -71,7 +71,7 @@ docker compose up -d --build
 
 The SQLite database should live on a local Unraid pool/disk, not a remote SMB/NFS mount. The container runs as root by default for simple Unraid volume compatibility. If you set a Docker `--user` or Compose `user`, make the `/data` folder writable by that UID/GID first. There are no `PUID`/`PGID` variables.
 
-Keep the app on your trusted LAN, VPN, or HTTPS reverse proxy. HTTP Basic authentication does not encrypt traffic; use HTTPS for remote access. Leaving `FORMA_PASSWORD` empty disables sign-in. CSRF checks require same-origin browser requests and the `X-Forma-Request: 1` header for API writes.
+Keep the app on your trusted LAN, VPN, or HTTPS reverse proxy. Use HTTPS for remote access. On first startup, `FORMA_USERNAME` and `FORMA_PASSWORD` seed the owner account. A blank initial password leaves sign-in disabled until you set one in Account. Once saved, the account in `/data/forma.sqlite3` takes precedence over these environment variables; restarting or updating the container does not restore the old password. CSRF checks require same-origin browser requests and the `X-Forma-Request: 1` header for API writes.
 
 ## App icon
 
@@ -196,3 +196,17 @@ Bambu Studio's web downloader accepts 3MF projects. Existing 3MF files are hande
 The native apps fetch from a random, file-scoped capability link that expires after ten minutes. The link carries no Forma username or password; its hash is stored in SQLite. Native HEAD/GET/Range retries are supported until expiry. Changed/missing original files invalidate the link, and the rest of the catalog still requires normal sign-in. Temporary converted meshes live in `/data/slicer-cache`; old copies are cleaned on subsequent handoffs and may be cleared while Forma is stopped. No cloud relay or desktop helper is installed. The slicer must be able to reach the same Forma address as the browser. App/browser prompts, URL-handler registration, and native slicer download-directory setup may require your interaction; the original **Download** action remains available.
 
 Protocol references: [Bambu Studio macOS handler](https://github.com/bambulab/BambuStudio/blob/master/src/slic3r/GUI/GUI_App.cpp), [Bambu project downloader](https://github.com/bambulab/BambuStudio/blob/master/src/slic3r/GUI/Plater.cpp), [Snapmaker Orca downloader](https://github.com/Snapmaker/OrcaSlicer/blob/main/src/slic3r/GUI/Downloader.cpp). Preset limits were checked against the installed vendor profiles and [Snapmaker's U1 specifications](https://wiki.snapmaker.com/en/FAQ/u1).
+
+## Account and profile
+
+Click your avatar at the top right, **Account** in the sidebar, or **Manage account** in workspace settings. You can change your display name, username, password, and profile photo. Username and password changes require your current password. New passwords must contain 12–256 characters. Photos may be PNG, JPG, WebP or GIF up to 5 MB; Forma crops and stores a 256-pixel square copy.
+
+Browser sign-in lasts up to 14 days. Account settings lists active browsers and lets you sign out other browsers or the current browser. Changing your password or username keeps this browser signed in, signs out other browsers, invalidates old slicer download links and revokes browser companion pairings; pair the companion again afterward. Passwords are stored as salted hashes. HTTP Basic remains supported for API clients using the current account credentials. `/health` exposes only the service health status without sign-in so container health checks keep working after a password change.
+
+Account credentials and profile photos persist in the data volume and are included in database backups. JSON catalog exports contain catalog records, not the account. If you forget your password, use Unraid Terminal for an interactive reset (the password is prompted privately, never passed as a command argument):
+
+```sh
+docker exec -it forma python account_admin.py reset-password
+```
+
+Add `--username NEWNAME` only if you also need to recover the username. Recovery signs out all browsers and revokes existing companion pairings and slicer links.

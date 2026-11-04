@@ -57,12 +57,13 @@ class SlicerTests(unittest.TestCase):
             owner={**self.h,'Authorization':'Basic '+base64.b64encode(b'owner:test-secret').decode()}
             self.assertEqual(self.c.post('/api/files/'+self.file+'/slicer-link',json={'slicer':'bambu'},headers=self.h).status_code,401)
             result=self.link(slicer='snapmaker',headers=owner);path=urlsplit(result['download_url']).path
+            guest=self.app.test_client()
             self.assertNotIn('test-secret',result['download_url'])
-            r=self.c.get(path);self.assertEqual(r.status_code,200);self.assertEqual(r.data,self.body);self.assertIn('no-store',r.headers['Cache-Control']);r.close()
-            head=self.c.head(path);self.assertEqual(head.status_code,200);head.close()
-            self.assertEqual(self.c.get('/api/models').status_code,401);self.assertEqual(self.c.get('/api/files/'+self.file).status_code,401)
-            self.assertEqual(self.c.get(path.replace('Sample.stl','Other.stl')).status_code,404)
-            self.assertEqual(self.c.get('/slicer-download/not-a-token/Sample.stl').status_code,404)
+            r=guest.get(path);self.assertEqual(r.status_code,200);self.assertEqual(r.data,self.body);self.assertIn('no-store',r.headers['Cache-Control']);r.close()
+            head=guest.head(path);self.assertEqual(head.status_code,200);head.close()
+            self.assertEqual(guest.get('/api/models').status_code,401);self.assertEqual(guest.get('/api/files/'+self.file).status_code,401)
+            self.assertEqual(guest.get(path.replace('Sample.stl','Other.stl')).status_code,404)
+            self.assertEqual(guest.get('/slicer-download/not-a-token/Sample.stl').status_code,404)
 
     def test_native_range_retries_are_allowed_until_expiry(self):
         path=urlsplit(self.link(slicer='snapmaker')['download_url']).path

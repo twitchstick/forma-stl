@@ -143,7 +143,7 @@ class LibraryTests(unittest.TestCase):
             with self.client.head('/static/app-icon.png') as response:
                 self.assertEqual(response.status_code,200)
             self.assertEqual(self.client.get('/api/models').status_code,401)
-            self.assertEqual(self.client.get('/').status_code,401)
+            with self.client.get('/') as response:self.assertEqual(response.status_code,401)
             self.assertEqual(self.client.get('/static/app.js').status_code,401)
 
 

@@ -26,6 +26,7 @@ from library_services import LibraryServices
 from makerworld_import import MakerWorldBridge
 from catalog_tools import register_catalog_tools
 from slicers import register_slicers
+from account import Account
 from source_import import SourceImports
 from collection_schedule import CollectionSchedules
 from source_metadata import parse_source, web_url
@@ -166,6 +167,9 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             except OSError:
                 pass
 
+    account=Account(app,db,now)
+    app.extensions['account']=account
+
     @app.before_request
     def protect():
         if request.path.startswith('/api/companion/'):
@@ -179,11 +183,14 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         # Docker Manager downloads this non-sensitive logo without browser auth.
         if request.path == '/static/app-icon.png' and request.method in ('GET','HEAD'):
             return
-        password = os.environ.get('FORMA_PASSWORD', '')
-        if password:
-            auth = request.authorization
-            if not auth or auth.type != 'basic' or not hmac.compare_digest(auth.username or '', os.environ.get('FORMA_USERNAME', 'admin')) or not hmac.compare_digest(auth.password or '', password):
-                return ('Sign in to Forma', 401, {'WWW-Authenticate': 'Basic realm="Forma"'})
+        if request.path=='/health' and request.method in ('GET','HEAD'):return
+        public_read=request.method in ('GET','HEAD') and request.path in ('/login','/static/login.js','/static/login.css')
+        public_auth=request.path in ('/api/auth/login','/api/auth/status')
+        if not public_read and request.path!='/api/auth/login':
+            authenticated=account.authenticate()
+            if not authenticated and not public_auth:
+                if request.path=='/':return send_from_directory(app.static_folder,'login.html'),401
+                return jsonify(error='Sign in to Forma.',login_required=True),401
         if request.method in ('POST', 'PATCH', 'DELETE'):
             origin = request.headers.get('Origin')
             if origin and urlsplit(origin).netloc != request.host:
@@ -193,6 +200,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
 
     @app.after_request
     def headers(response):
+        response=account.cookies(response)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['X-Frame-Options'] = 'DENY'

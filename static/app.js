@@ -30,6 +30,7 @@ function notify(message) { $('#toast').textContent=message; $('#toast').hidden=f
 async function api(path, options={}) {
  const response=await fetch(path,{...options,headers:{'X-Forma-Request':'1',...(options.body instanceof FormData?{}:{'Content-Type':'application/json'}),...options.headers}});
  const result=await response.json().catch(()=>({error:'The server returned an unexpected response.'}));
+ if(response.status===401){const next=location.pathname+location.search;location.assign('/login?next='+encodeURIComponent(next));throw new Error('Sign in to Forma to continue.');}
  if(!response.ok) throw new Error(result.error || 'Request failed.');
  return result;
 }
