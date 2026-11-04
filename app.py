@@ -25,6 +25,7 @@ from previews import cached_preview
 from library_services import LibraryServices
 from makerworld_import import MakerWorldBridge
 from catalog_tools import register_catalog_tools
+from slicers import register_slicers
 from source_import import SourceImports
 from collection_schedule import CollectionSchedules
 from source_metadata import parse_source, web_url
@@ -172,6 +173,9 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             if request.method=='OPTIONS':
                 return ('',204)
             return
+        # A short-lived capability grants read-only access to one selected model file.
+        # The download handler validates its token, expiry, path, and file fingerprint.
+        if request.endpoint=='slicer_download' and request.method in ('GET','HEAD'):return
         # Docker Manager downloads this non-sensitive logo without browser auth.
         if request.path == '/static/app-icon.png' and request.method in ('GET','HEAD'):
             return
@@ -350,6 +354,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
 
     app.extensions['collection_schedules'] = CollectionSchedules(app,db,app.extensions['makerworld_bridge'],lambda *args:fetch_public(*args),now)
     register_catalog_tools(app,db,data,library,model,now)
+    register_slicers(app,db,data,library)
 
     @app.get('/api/watch')
     def watch_status():

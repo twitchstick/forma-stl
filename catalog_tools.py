@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 from flask import abort, jsonify, request
 from model_details import cached_details
+from slicers import SLICERS
 
 
 def text(value, limit=300):
@@ -41,6 +42,9 @@ def register_catalog_tools(app, db, data, library, model, now):
         CREATE TABLE IF NOT EXISTS file_labels(file_id TEXT PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,label TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS print_logs(id TEXT PRIMARY KEY,model_id TEXT NOT NULL REFERENCES models(id) ON DELETE CASCADE,printer_id TEXT REFERENCES printers(id) ON DELETE SET NULL,printer_name TEXT NOT NULL DEFAULT '',printed_on TEXT NOT NULL,filament TEXT NOT NULL DEFAULT '',settings TEXT NOT NULL DEFAULT '',result TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',photo_id TEXT REFERENCES files(id) ON DELETE SET NULL,created_at TEXT NOT NULL);
         ''')
+        columns={r[1] for r in c.execute('PRAGMA table_info(printers)')}
+        for name in ('slicer','preset'):
+            if name not in columns:c.execute('ALTER TABLE printers ADD COLUMN '+name+" TEXT NOT NULL DEFAULT ''")
 
     @app.get('/api/saved-views')
     def views():
@@ -77,19 +81,23 @@ def register_catalog_tools(app, db, data, library, model, now):
     def printer_values(p):
         name = text(p.get('name', ''), 100)
         if not name: raise ValueError('Name your printer.')
-        return (name, number(p.get('width')), number(p.get('depth')), number(p.get('height')), number(p.get('nozzle'), True, 5), text(p.get('notes', ''), 5000))
+        slicer=p.get('slicer','')
+        if slicer not in ('',*SLICERS):raise ValueError('Choose a supported preferred slicer.')
+        return (name, number(p.get('width')), number(p.get('depth')), number(p.get('height')), number(p.get('nozzle'), True, 5), text(p.get('notes', ''), 5000),slicer,text(p.get('preset',''),50))
 
     @app.post('/api/printers')
     def add_printer():
         values = printer_values(request.get_json());id = str(uuid.uuid4())
-        with db() as c: c.execute('INSERT INTO printers VALUES (?,?,?,?,?,?,?)', (id, *values))
+        with db() as c: c.execute('INSERT INTO printers(id,name,width,depth,height,nozzle,notes,slicer,preset) VALUES (?,?,?,?,?,?,?,?,?)', (id, *values))
         return jsonify(id=id), 201
 
     @app.patch('/api/printers/<id>')
     def edit_printer(id):
-        values = printer_values(request.get_json())
         with db() as c:
-            if not c.execute('UPDATE printers SET name=?,width=?,depth=?,height=?,nozzle=?,notes=? WHERE id=?', (*values, id)).rowcount: abort(404)
+            old=c.execute('SELECT * FROM printers WHERE id=?',(id,)).fetchone()
+            if not old:abort(404)
+            values=printer_values({**dict(old),**request.get_json()})
+            c.execute('UPDATE printers SET name=?,width=?,depth=?,height=?,nozzle=?,notes=?,slicer=?,preset=? WHERE id=?', (*values,id))
         return jsonify(ok=True)
 
     @app.delete('/api/printers/<id>')
