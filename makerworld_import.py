@@ -17,7 +17,7 @@ from flask import abort, g, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 from previews import normalize_image
 from website_import import normalize_website_item, identity
-from source_metadata import source_fields
+from source_metadata import source_fields, web_url
 
 PHOTO_HOSTS = ('bblmw.com','makerworld.com','bambulab.com')
 MAX_ITEMS = 500
@@ -55,7 +55,7 @@ def normalize_item(item):
     for c in collections:
         if not isinstance(c,dict) or not re.fullmatch(r'\d{1,20}|liked',str(c.get('id',''))):
             raise ValueError('Invalid collection ID.')
-        memberships[str(c['id'])] = {'id':str(c['id']),'name':str(c.get('name','')).strip()[:100] or 'MakerWorld collection'}
+        memberships[str(c['id'])] = {'id':str(c['id']),'name':str(c.get('name','')).strip()[:100] or 'MakerWorld collection','source_url':web_url(c.get('source_url',''))}
     tags = item.get('tags',[])
     if not isinstance(tags,list):
         raise ValueError('Tags must be a list.')
@@ -371,6 +371,7 @@ class MakerWorldBridge:
             shutil.rmtree(self.staging/id,ignore_errors=True)
             queued=0
             for model_id,item in photos:
+                if 'collection_schedules' in self.app.extensions:self.app.extensions['collection_schedules'].remember(item)
                 try:
                     self.app.extensions['source_imports'].enqueue(model_id,item,fetch_page=False)
                     queued+=len(item.get('image_urls',[]))

@@ -8,7 +8,7 @@ COPY previews.py .
 COPY library_services.py .
 COPY makerworld_import.py .
 COPY website_import.py .
-COPY catalog_tools.py model_details.py source_metadata.py source_import.py ./
+COPY catalog_tools.py model_details.py source_metadata.py source_import.py collection_schedule.py ./
 COPY companion ./companion
 COPY static ./static
 EXPOSE 8080

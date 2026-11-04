@@ -16,7 +16,7 @@
      description:text(d.description||d.summary).replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim(),
      tags:(Array.isArray(d.tags)?d.tags:[]).map(t=>typeof t==='string'?t:t?.name||t?.title||'').filter(Boolean),
      image_url:typeof image==='string'?image:'',image_urls:[...(Array.isArray(d.images)?d.images:[])].map(i=>typeof i==='string'?i:i?.url||i?.src||'').filter(Boolean).slice(0,20),license:typeof d.license==='string'?d.license:d.license?.name||d.licenseName||'',license_url:d.license?.url||d.licenseUrl||'',attribution:d.creditText||d.attribution||'',profile_id:id(profile?.id||d.defaultInstanceId),
-     favorite:collection?.id==='liked',collections:collection?[{id:String(collection.id),name:collection.name}]:[]};
+     favorite:collection?.id==='liked',collections:collection?[{id:String(collection.id),name:collection.name,source_url:/^\d+$/.test(String(collection.id))?'https://makerworld.com/en/collections/'+collection.id:''}]:[]};
  }
  async function api(path,fetcher=fetch,token=''){
    if(!path.startsWith('/')||path.startsWith('//'))throw Error('Invalid MakerWorld API path.');

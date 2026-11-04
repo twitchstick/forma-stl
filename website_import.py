@@ -2,6 +2,7 @@
 import hashlib
 import re
 from urllib.parse import urlsplit, unquote
+from source_metadata import web_url
 
 PROVIDERS = {'printables': 'printables.com', 'cults3d': 'cults3d.com', 'thangs': 'thangs.com'}
 
@@ -43,8 +44,8 @@ def normalize_website_item(item):
         raw = str(entry.get('id', '')).strip()
         name = str(entry.get('name', '')).strip()[:100]
         if not raw or not name: raise ValueError('Each collection needs a name and ID.')
-        key = provider + ':' + hashlib.sha256(raw.encode()).hexdigest()[:32]
-        collections[key] = {'id': key, 'name': name}
+        key = raw if re.fullmatch(provider+r':[a-f0-9]{32}',raw) else provider + ':' + hashlib.sha256(raw.encode()).hexdigest()[:32]
+        collections[key] = {'id': key, 'name': name, 'source_url':web_url(entry.get('source_url') or raw.split('#')[0])}
     tags = item.get('tags', [])
     if not isinstance(tags, list): raise ValueError('Tags must be a list.')
     return dict(id=remote_id, provider=provider, title=title, source_url=source,

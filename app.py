@@ -26,6 +26,7 @@ from library_services import LibraryServices
 from makerworld_import import MakerWorldBridge
 from catalog_tools import register_catalog_tools
 from source_import import SourceImports
+from collection_schedule import CollectionSchedules
 from source_metadata import parse_source, web_url
 
 ROOT = Path(__file__).resolve().parent
@@ -347,6 +348,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     app.extensions['source_imports'] = SourceImports(app,db,data,library,model,add_file,lambda *args:fetch_public(*args),now)
     app.extensions['makerworld_bridge'] = MakerWorldBridge(app,db,data,insert_model,add_file,model,fetch_public,now)
 
+    app.extensions['collection_schedules'] = CollectionSchedules(app,db,app.extensions['makerworld_bridge'],lambda *args:fetch_public(*args),now)
     register_catalog_tools(app,db,data,library,model,now)
 
     @app.get('/api/watch')
@@ -538,6 +540,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
 
     if start_watcher:
         services.start()
+        app.extensions['collection_schedules'].start()
     return app
 
 
