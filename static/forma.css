@@ -932,6 +932,84 @@ h1 {
   flex-wrap: wrap;
 }
 
+/* Drop anywhere */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--overlay);
+  pointer-events: none;
+}
+.drop-overlay > div {
+  display: grid;
+  gap: 4px;
+  width: min(440px, 100%);
+  padding: 40px 24px;
+  border: 2px dashed var(--line-strong);
+  border-radius: 18px;
+  background: var(--bg);
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+}
+.drop-overlay strong {
+  font-size: var(--text-xl);
+  font-weight: 600;
+}
+.drop-overlay span {
+  color: var(--muted);
+}
+#quick-add-form > label {
+  margin-bottom: 14px;
+}
+#quick-skipped {
+  margin: -4px 0 14px;
+}
+.quick-files {
+  max-height: 180px;
+  overflow: auto;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+.quick-files li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+  font-size: var(--text-sm);
+}
+.quick-files li:first-child {
+  border-top: 0;
+}
+.quick-files span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.quick-files small {
+  color: var(--faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.upload-progress progress {
+  flex: 1;
+  height: 6px;
+}
+
 #toast {
   position: fixed;
   left: calc(50% + var(--sidebar) / 2);

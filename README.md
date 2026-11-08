@@ -12,6 +12,7 @@ A personal, self-hosted STL library for Unraid with dark, light and system appea
 - A read-only folder watcher checks every 15 minutes by default and queues new/changed folders in the Import inbox for approval.
 - Duplicate finder compares SHA-256 content hashes, including files with different names. Results are advisory; nothing is deleted or merged.
 - Filter by source, tags, and print status; favorites and a print queue.
+- Drop files anywhere to add a model: Forma names it after the model file and asks once before saving. Drop files on a model page to add them to it. Paste files, screenshots or a model page link anywhere to do the same.
 - Upload STL, 3MF, OBJ, STEP, STP and ZIP files, plus JPG, PNG, WebP and GIF images. ZIP files are stored for download, not extracted.
 - Import public page metadata (title, description, creator, tags and Open Graph cover image when provided).
 - Scan an existing server folder, read-only. Each containing folder becomes a model with its files and pictures. Root-level files are grouped by filename stem. Repeated scans skip existing imported folders.
