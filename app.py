@@ -150,6 +150,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
           name TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL, kind TEXT NOT NULL,
           sha256 TEXT NOT NULL DEFAULT '', external INTEGER NOT NULL DEFAULT 0
         );
+        CREATE INDEX IF NOT EXISTS files_model_id ON files(model_id);
         ''')
         model_columns = {r[1] for r in c.execute('PRAGMA table_info(models)')}
         for name in ('license', 'license_url', 'attribution'):
@@ -239,28 +240,41 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         app.logger.exception('Request failed')
         return jsonify(error='The request failed. Check server logs for details.'), 500
 
+    def load_models(c, id=None):
+        """Return catalog records, newest first, using one query per table rather than per model."""
+        where, params = ('WHERE id=?', (id,)) if id else ('', ())
+        records = [dict(r) for r in c.execute('SELECT * FROM models ' + where + ' ORDER BY created_at DESC', params)]
+        if not records:
+            return []
+        scope, scope_params = ('WHERE model_id=?', (id,)) if id else ('', ())
+        files, memberships, sources = {}, {}, {}
+        for f in c.execute('SELECT model_id,id,name,size,kind FROM files ' + scope + ' ORDER BY rowid', scope_params):
+            files.setdefault(f['model_id'], []).append({k: f[k] for k in ('id', 'name', 'size', 'kind')})
+        for r in c.execute(
+            'SELECT model_id,name FROM makerworld_memberships ' + scope + ' ORDER BY name', scope_params
+        ):
+            memberships.setdefault(r['model_id'], []).append(r['name'])
+        source_where = (scope + ' AND' if scope else 'WHERE') + " remote_id NOT LIKE '%:%'"
+        for r in c.execute(
+            'SELECT model_id,remote_id,profile_id FROM makerworld_sources ' + source_where + ' ORDER BY rowid',
+            scope_params,
+        ):
+            sources.setdefault(r['model_id'], {'remote_id': r['remote_id'], 'profile_id': r['profile_id']})
+        for result in records:
+            mid = result['id']
+            result['tags'] = json.loads(result['tags'])
+            result['favorite'] = bool(result['favorite'])
+            result['files'] = files.get(mid, [])
+            primary = [result['collection']] if result['collection'] else []
+            result['collections'] = list(dict.fromkeys(primary + memberships.get(mid, [])))
+            result['makerworld'] = sources.get(mid)
+        return records
+
     def model(c, id):
-        row = c.execute('SELECT * FROM models WHERE id=?', (id,)).fetchone()
-        if not row:
+        records = load_models(c, id)
+        if not records:
             abort(404, 'Model not found.')
-        result = dict(row)
-        result['tags'] = json.loads(result['tags'])
-        result['favorite'] = bool(result['favorite'])
-        result['files'] = [dict(x) for x in c.execute('SELECT id,name,size,kind FROM files WHERE model_id=?', (id,))]
-        result['collections'] = list(
-            dict.fromkeys(
-                ([result['collection']] if result['collection'] else [])
-                + [
-                    r[0]
-                    for r in c.execute('SELECT name FROM makerworld_memberships WHERE model_id=? ORDER BY name', (id,))
-                ]
-            )
-        )
-        source = c.execute(
-            "SELECT remote_id,profile_id FROM makerworld_sources WHERE model_id=? AND remote_id NOT LIKE '%:%'", (id,)
-        ).fetchone()
-        result['makerworld'] = dict(source) if source else None
-        return result
+        return records[0]
 
     COLUMNS = (
         'title',
@@ -329,8 +343,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     @app.get('/api/models')
     def list_models():
         with db() as c:
-            ids = [r[0] for r in c.execute('SELECT id FROM models ORDER BY created_at DESC')]
-            return jsonify([model(c, id) for id in ids])
+            return jsonify(load_models(c))
 
     @app.post('/api/models')
     def add_model():
@@ -633,7 +646,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     @app.get('/api/export')
     def export():
         with db() as c:
-            records = [model(c, r[0]) for r in c.execute('SELECT id FROM models')]
+            records = load_models(c)
         response = jsonify(format='forma-catalog-v1', exported_at=now(), models=records)
         response.headers['Content-Disposition'] = 'attachment; filename="forma-catalog.json"'
         return response

@@ -112,6 +112,7 @@ class MakerWorldBridge:
               CREATE TABLE IF NOT EXISTS makerworld_batches(id TEXT PRIMARY KEY,device_id TEXT NOT NULL REFERENCES companion_devices(id),title TEXT NOT NULL,state TEXT NOT NULL,payload TEXT NOT NULL,warnings TEXT NOT NULL DEFAULT '[]',created_at TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS makerworld_sources(remote_id TEXT PRIMARY KEY,model_id TEXT NOT NULL REFERENCES models(id) ON DELETE CASCADE,profile_id TEXT NOT NULL DEFAULT '');
               CREATE TABLE IF NOT EXISTS makerworld_memberships(model_id TEXT NOT NULL REFERENCES models(id) ON DELETE CASCADE,remote_collection TEXT NOT NULL,name TEXT NOT NULL,PRIMARY KEY(model_id,remote_collection));
+              CREATE INDEX IF NOT EXISTS makerworld_sources_model_id ON makerworld_sources(model_id);
             ''')
         self.routes()
 
