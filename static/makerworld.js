@@ -141,15 +141,6 @@ $('#mw-copy-code').onclick = async () => {
     $('#mw-message').textContent = 'The pairing code is selected. Press Ctrl+C or Cmd+C to copy it.';
   }
 };
-const mwSettings = document.createElement('div');
-mwSettings.className = 'settings-card';
-mwSettings.innerHTML =
-  '<h3>Import from website</h3><p>Bring model catalogs and collections from MakerWorld, Printables, Cults3D, and Thangs into Forma.</p><button class="button secondary" id="mw-settings-open">Open website import</button>';
-$('#settings').append(mwSettings);
-$('#mw-settings-open').onclick = () => {
-  $('#settings').close();
-  openMakerWorld();
-};
 const incomingMw = new URLSearchParams(location.search).get('makerworldBatch');
 if (incomingMw && /^[a-f0-9-]{36}$/.test(incomingMw)) openMakerWorld(incomingMw);
 $('#mw-bookmarklet').onclick = (e) => {

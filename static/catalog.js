@@ -26,7 +26,7 @@ function renderSavedViews() {
     savedViews
       .map(
         (v) =>
-          `<div class="saved-view-row"><button class="collection-item" data-saved-view="${v.id}">◇ ${escapeHTML(v.name)}</button><button class="text-button" data-rename-view="${v.id}" aria-label="Rename ${escapeHTML(v.name)}">✎</button><button class="text-button" data-delete-view="${v.id}" aria-label="Delete ${escapeHTML(v.name)}">×</button></div>`
+          `<div class="saved-view-row"><button class="collection-item" data-saved-view="${v.id}">${escapeHTML(v.name)}</button><button class="text-button" data-rename-view="${v.id}" aria-label="Rename ${escapeHTML(v.name)}">✎</button><button class="text-button" data-delete-view="${v.id}" aria-label="Delete ${escapeHTML(v.name)}">×</button></div>`
       )
       .join('') || '<p class="collection-empty">Save filters you use often</p>';
   $('#saved-views').innerHTML = rows;
@@ -171,19 +171,6 @@ $('#printer-form').onsubmit = async (e) => {
     b.disabled = false;
   }
 };
-const catalogSettings = document.createElement('div');
-catalogSettings.className = 'settings-card';
-catalogSettings.innerHTML =
-  '<h3>Your workshop</h3><p>Save views for repeat searches, manage printers, and record print attempts from a model’s details.</p><button class="button secondary" id="manage-saved-views">Saved views</button> <button class="button secondary" id="manage-printers">My printers</button>';
-$('#settings').append(catalogSettings);
-$('#manage-saved-views').onclick = () => {
-  $('#settings').close();
-  $('#saved-views-dialog').showModal();
-};
-$('#manage-printers').onclick = () => {
-  $('#settings').close();
-  openPrinters();
-};
 function sizeText(d) {
   return d.map((n) => Number(n.toFixed(2))).join(' × ') + ' mm';
 }
@@ -203,7 +190,7 @@ async function loadCatalogDetails(id) {
   const body = $('#detail-content .detail-body');
   let mount = document.createElement('section');
   mount.id = 'catalog-model-details';
-  mount.innerHTML = '<h3>Files & print details</h3><p class="hint">Reading model measurements…</p>';
+  mount.innerHTML = '<h3>Print details</h3><p class="hint">Reading model measurements…</p>';
   body.insertBefore(mount, body.querySelector('.file-heading'));
   let logMount = document.createElement('section');
   logMount.id = 'catalog-print-history';
@@ -215,7 +202,7 @@ async function loadCatalogDetails(id) {
     const [details, printers] = await Promise.all([api('/api/models/' + id + '/details'), api('/api/printers')]);
     if (generation !== detailsGeneration || !mount.isConnected) return;
     printerProfiles = printers;
-    mount.innerHTML = `<h3>Files & print details</h3>${printers.length ? `<label>Check build volume<select id="fit-printer"><option value="">Choose a printer</option>${printers.map((p) => `<option value="${p.id}">${escapeHTML(p.name)} · ${p.width} × ${p.depth} × ${p.height} mm</option>`).join('')}</select></label>` : '<p class="hint">Add a printer under My printers to compare build volume.</p>'}<p id="fit-printer-notes" class="hint"></p><p class="hint">Size checks use bounding boxes and allow a 90° turn on the plate. Check orientation, supports, brims, clearances, and actual printable area in your slicer.</p>${
+    mount.innerHTML = `<h3>Print details</h3>${printers.length ? `<label>Check build volume<select id="fit-printer"><option value="">Choose a printer</option>${printers.map((p) => `<option value="${p.id}">${escapeHTML(p.name)} · ${p.width} × ${p.depth} × ${p.height} mm</option>`).join('')}</select></label>` : '<p class="hint">Add a printer in Settings › My printers to check whether this fits.</p>'}<p id="fit-printer-notes" class="hint"></p>${
       details.files
         .map(
           (f) =>
@@ -269,7 +256,7 @@ async function loadCatalogDetails(id) {
     );
   } catch (error) {
     if (generation === detailsGeneration && mount.isConnected)
-      mount.innerHTML = '<h3>Files & print details</h3><p class="hint">' + escapeHTML(error.message) + '</p>';
+      mount.innerHTML = '<h3>Print details</h3><p class="hint">' + escapeHTML(error.message) + '</p>';
   }
 }
 async function loadPrintHistory(id, mount, generation) {

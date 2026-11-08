@@ -86,7 +86,7 @@ def inspect_mesh(body, suffix):
             scene = scene.convert_units('mm', guess=False)
             result['note'] = '3MF build layout, including placed parts; dimensions converted to mm.'
         else:
-            result['note'] = 'STL/OBJ have no reliable unit declaration; millimeters assumed.'
+            result['note'] = 'Units assumed to be millimetres.'
         bounds = np.asarray(scene.bounds)
         if bounds.shape != (2, 3) or not np.isfinite(bounds).all():
             raise ValueError('Geometry has invalid bounds.')

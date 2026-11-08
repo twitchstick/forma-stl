@@ -562,14 +562,6 @@ $('#list-view').onclick = () => {
 };
 $('#clear-filters').onclick = clearFilters;
 $('#settings-button').onclick = $('#about-button').onclick = () => $('#settings').showModal();
-const mobileScan = document.createElement('button');
-mobileScan.className = 'button secondary';
-mobileScan.textContent = 'Import server folder ↥';
-mobileScan.onclick = () => {
-  $('#settings').close();
-  $('#scan').showModal();
-};
-$('#settings .settings-card:nth-of-type(3)').append(mobileScan);
 $('#scan-button').onclick = () => {
   $('#scan').showModal();
 };
@@ -918,19 +910,6 @@ $('#scan-duplicates').onclick = async () => {
   }
 };
 $('#duplicates-dialog').addEventListener('close', () => clearTimeout(duplicatePoll));
-const libraryTools = document.createElement('div');
-libraryTools.className = 'settings-card';
-libraryTools.innerHTML =
-  '<h3>Library tools</h3><p>Review new files and folder changes, or find identical model files.</p><button class="button secondary" id="settings-inbox">Open import inbox</button><button class="button secondary" id="settings-duplicates">Find duplicates</button>';
-$('#settings').append(libraryTools);
-$('#settings-inbox').onclick = () => {
-  $('#settings').close();
-  openInbox();
-};
-$('#settings-duplicates').onclick = () => {
-  $('#settings').close();
-  openDuplicates();
-};
 setInterval(refreshWatchStatus, 30000);
 
 refresh().then(route);
@@ -951,3 +930,27 @@ document.addEventListener('keydown', (event) => {
   if (document.body.classList.contains('menu-open')) setMenu(false);
   else if (modelPageId && !$$('dialog').some((d) => d.open)) leaveModelPage();
 });
+
+// Sidebar groups: remember which are open, and show waiting imports on the Import heading.
+$$('.nav-group').forEach((group) => {
+  try {
+    group.open = localStorage.getItem('forma-nav-' + group.id) === 'open';
+  } catch {}
+  group.addEventListener('toggle', () => {
+    try {
+      localStorage.setItem('forma-nav-' + group.id, group.open ? 'open' : 'closed');
+    } catch {}
+  });
+});
+function syncImportBadge() {
+  const pending = Number($('#review-count').textContent) || 0;
+  $('#import-badge').textContent = pending;
+  $('#import-badge').hidden = !pending;
+  $('#review-count').hidden = !pending;
+}
+new MutationObserver(syncImportBadge).observe($('#review-count'), {
+  childList: true,
+  characterData: true,
+  subtree: true,
+});
+syncImportBadge();

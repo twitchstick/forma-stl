@@ -47,7 +47,7 @@ async function openAccount() {
     $('#account-password-form').elements.current_password.required = profile.authentication_enabled;
     $('#account-signout').hidden = !profile.authentication_enabled;
     $('#account-password-hint').textContent = profile.authentication_enabled
-      ? 'Changing your password signs out other browsers and revokes old slicer links and browser companion pairings. This browser stays signed in.'
+      ? 'Changing it signs out your other browsers and paired companions.'
       : 'Sign-in is currently disabled. Set a password here to protect your library.';
     await loadAccountSessions();
   } catch (error) {
@@ -94,8 +94,7 @@ $('#account-password-form').onsubmit = async (event) => {
     $('#account-current-password-label').hidden = false;
     form.elements.current_password.required = true;
     $('#account-signout').hidden = false;
-    $('#account-password-hint').textContent =
-      'Changing your password signs out other browsers and revokes old slicer links and browser companion pairings. This browser stays signed in.';
+    $('#account-password-hint').textContent = 'Changing it signs out your other browsers and paired companions.';
     $('#account-password-message').textContent =
       'Password updated. Other browsers are signed out. This browser stays signed in.';
     await loadAccountSessions();
@@ -145,15 +144,6 @@ $('#account-signout').onclick = async () => {
   } catch (error) {
     $('#account-status').textContent = error.message;
   }
-};
-const accountSettings = document.createElement('div');
-accountSettings.className = 'settings-card';
-accountSettings.innerHTML =
-  '<h3>Account & profile</h3><p>Change your password, username, display name and profile picture, or manage signed-in browsers.</p><button class="button secondary" id="settings-account-open">Manage account</button>';
-$('#settings .dialog-heading').after(accountSettings);
-$('#settings-account-open').onclick = () => {
-  $('#settings').close();
-  openAccount();
 };
 api('/api/account')
   .then(paintAccount)

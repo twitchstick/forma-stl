@@ -159,15 +159,6 @@ $('#track-collection-form').onsubmit = async (e) => {
   }
 };
 scheduleDialog.addEventListener('close', () => clearTimeout(scheduleTimer));
-const scheduleSettings = document.createElement('div');
-scheduleSettings.className = 'settings-card';
-scheduleSettings.innerHTML =
-  '<h3>Daily collection checks</h3><p>Track website collections and review newly discovered models. Public collections can be checked from Unraid; signed-in collections may need a Safari refresh.</p><button class="button secondary" id="schedule-settings-open">Collection schedules</button>';
-$('#settings').append(scheduleSettings);
-$('#schedule-settings-open').onclick = () => {
-  $('#settings').close();
-  openCollectionSchedules();
-};
 $('#schedule-import-open').onclick = () => {
   $('#makerworld-dialog').close();
   openCollectionSchedules();
