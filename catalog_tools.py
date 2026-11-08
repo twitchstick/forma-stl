@@ -6,6 +6,7 @@ from pathlib import Path
 from flask import abort, jsonify, request
 from model_details import cached_details
 from slicers import SLICERS
+from migrations import add_columns
 
 
 def text(value, limit=300):
@@ -58,10 +59,7 @@ def register_catalog_tools(app, db, data, library, model, now):
         CREATE TABLE IF NOT EXISTS file_labels(file_id TEXT PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,label TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS print_logs(id TEXT PRIMARY KEY,model_id TEXT NOT NULL REFERENCES models(id) ON DELETE CASCADE,printer_id TEXT REFERENCES printers(id) ON DELETE SET NULL,printer_name TEXT NOT NULL DEFAULT '',printed_on TEXT NOT NULL,filament TEXT NOT NULL DEFAULT '',settings TEXT NOT NULL DEFAULT '',result TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',photo_id TEXT REFERENCES files(id) ON DELETE SET NULL,created_at TEXT NOT NULL);
         ''')
-        columns = {r[1] for r in c.execute('PRAGMA table_info(printers)')}
-        for name in ('slicer', 'preset'):
-            if name not in columns:
-                c.execute('ALTER TABLE printers ADD COLUMN ' + name + " TEXT NOT NULL DEFAULT ''")
+        add_columns(c, 'printers', {'slicer': "TEXT NOT NULL DEFAULT ''", 'preset': "TEXT NOT NULL DEFAULT ''"})
 
     @app.get('/api/saved-views')
     def views():

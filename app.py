@@ -30,6 +30,7 @@ from account import Account
 from source_import import SourceImports
 from collection_schedule import CollectionSchedules
 from source_metadata import parse_source, web_url
+from migrations import add_columns, backup_before_upgrade, migrate
 
 ROOT = Path(__file__).resolve().parent
 MODELS = {'.stl', '.3mf', '.obj', '.step', '.stp', '.zip'}
@@ -120,6 +121,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     uploads = data / 'files'
     uploads.mkdir(parents=True, exist_ok=True)
     db_path = data / 'forma.sqlite3'
+    backup_before_upgrade(db_path, log=lambda message: app.logger.warning(message))
     app.config.update(MAX_CONTENT_LENGTH=512 * 1024 * 1024)
     app.config['FORMA_LIBRARY_ROOT'] = str(library)
 
@@ -152,14 +154,12 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         );
         CREATE INDEX IF NOT EXISTS files_model_id ON files(model_id);
         ''')
-        model_columns = {r[1] for r in c.execute('PRAGMA table_info(models)')}
-        for name in ('license', 'license_url', 'attribution'):
-            if name not in model_columns:
-                c.execute('ALTER TABLE models ADD COLUMN ' + name + " TEXT NOT NULL DEFAULT ''")
-        columns = {r[1] for r in c.execute('PRAGMA table_info(files)')}
-        for name in ('mtime_ns', 'hash_mtime_ns', 'hash_size'):
-            if name not in columns:
-                c.execute('ALTER TABLE files ADD COLUMN ' + name + ' INTEGER NOT NULL DEFAULT 0')
+        add_columns(
+            c, 'models', {name: "TEXT NOT NULL DEFAULT ''" for name in ('license', 'license_url', 'attribution')}
+        )
+        add_columns(
+            c, 'files', {name: 'INTEGER NOT NULL DEFAULT 0' for name in ('mtime_ns', 'hash_mtime_ns', 'hash_size')}
+        )
         for row in c.execute('SELECT id,path,size FROM files WHERE mtime_ns=0').fetchall():
             try:
                 path = Path(row['path']).resolve()
@@ -671,6 +671,9 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         except Exception:
             archive.close()
             raise
+
+    # Every module has created its tables by now; apply numbered schema changes.
+    migrate(db)
 
     if start_watcher:
         services.start()

@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import quote
 from flask import abort, jsonify, request, send_file
 from werkzeug.utils import secure_filename
+from migrations import add_columns
 
 SLICERS = {'bambu': 'Bambu Studio', 'snapmaker': 'Snapmaker Orca'}
 FORMATS = {'.stl', '.3mf', '.obj', '.step', '.stp'}
@@ -104,8 +105,7 @@ def register_slicers(app, db, data, library):
         c.executescript(
             '''CREATE TABLE IF NOT EXISTS slicer_downloads(token_hash TEXT PRIMARY KEY,file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,name TEXT NOT NULL,path TEXT NOT NULL,size INTEGER NOT NULL,mtime_ns INTEGER NOT NULL,expires REAL NOT NULL);'''
         )
-        if 'payload_path' not in {r[1] for r in c.execute('PRAGMA table_info(slicer_downloads)')}:
-            c.execute("ALTER TABLE slicer_downloads ADD COLUMN payload_path TEXT NOT NULL DEFAULT ''")
+        add_columns(c, 'slicer_downloads', {'payload_path': "TEXT NOT NULL DEFAULT ''"})
 
     def checked_file(c, id):
         f = c.execute("SELECT * FROM files WHERE id=? AND kind='model'", (id,)).fetchone()
