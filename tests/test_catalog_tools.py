@@ -166,7 +166,7 @@ class CatalogToolsTests(unittest.TestCase):
                 'Metadata/project_settings.config',
                 json.dumps({'layer_height': '0.2', 'sparse_infill_density': '15%', 'private_token': 'never show'}),
             )
-        id = self.upload(out.getvalue(), 'project.3mf')
+        self.upload(out.getvalue(), 'project.3mf')
         entry = self.c.get('/api/models/' + self.model['id'] + '/details').json['files'][0]['entries'][0]
         self.assertEqual(entry['dimensions_mm'], [10, 20, 30])
         self.assertEqual(entry['settings']['layer_height'], '0.2')
