@@ -118,6 +118,7 @@ function submit(form) {
   form.dispatchEvent(new w.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: button }));
 }
 (async () => {
+  w.scrollTo = () => {}; // jsdom does not implement scrolling
   w.eval(
     fs.readFileSync(path.join(root, 'static/app.js'), 'utf8') +
       '\n' +

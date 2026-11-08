@@ -22,6 +22,10 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-save --ignore-scripts jsdom@26.1.0
+      - name: Check the 3D viewer bundle matches its source
+        run: |
+          cd viewer && npm ci --ignore-scripts && npm run build
+          git diff --exit-code -- ../static/vendor/forma-viewer.js
       - name: JavaScript tests
         run: for t in tests/*.cjs; do echo "$t"; node "$t"; done
       - name: Build Docker image

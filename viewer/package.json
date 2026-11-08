@@ -1,0 +1,12 @@
+{
+  "name": "forma-viewer",
+  "private": true,
+  "description": "In-browser 3D model viewer for Forma, bundled into static/vendor/forma-viewer.js",
+  "scripts": {
+    "build": "esbuild src/viewer.js --bundle --minify --format=iife --target=es2020 --legal-comments=eof --outfile=../static/vendor/forma-viewer.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "three": "0.186.1"
+  }
+}

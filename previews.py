@@ -189,3 +189,99 @@ def cached_preview(path, cache):
         except Exception as exc:
             error_file.write_text('A preview could not be generated for this file. Add a cover photo using Edit model.')
             raise ValueError(error_file.read_text()) from exc
+
+
+# ---------- Meshes for the in-browser 3D viewer ----------
+
+MESH_VERSION = 'v1'
+MESH_FACE_LIMIT = 150_000  # About 7.5 MB as binary STL: quick on a LAN and on phones.
+MESH_FORMATS = ('.stl', '.obj', '.3mf', '.zip')
+
+
+def load_mesh(path):
+    """Load one triangle mesh from an STL/OBJ/3MF file or the first usable model inside a ZIP."""
+    import trimesh
+
+    suffix = path.suffix.lower()
+    if suffix not in MESH_FORMATS:
+        raise ValueError('3D preview supports STL, OBJ, 3MF and model ZIP files.')
+    if suffix in ('.3mf', '.zip'):
+        with zipfile.ZipFile(path) as archive:
+            if sum(i.file_size for i in archive.infolist()) > MAX_MODEL_BYTES:
+                raise ValueError('This file is too large for a 3D preview.')
+            if suffix == '.zip':
+                parts = sorted(
+                    (
+                        i
+                        for i in archive.infolist()
+                        if Path(i.filename).suffix.lower() in ('.stl', '.obj', '.3mf')
+                        and not i.filename.startswith('__MACOSX/')
+                    ),
+                    key=lambda i: i.filename,
+                )
+                for part in parts:
+                    try:
+                        return _as_mesh(
+                            trimesh.load(
+                                io.BytesIO(archive.read(part)),
+                                file_type=Path(part.filename).suffix.lower()[1:],
+                                force='mesh',
+                                process=False,
+                                skip_materials=True,
+                            )
+                        )
+                    except Exception:
+                        continue
+                raise ValueError('No supported model found in this ZIP.')
+    elif path.stat().st_size > MAX_MODEL_BYTES:
+        raise ValueError('This file is too large for a 3D preview.')
+    return _as_mesh(trimesh.load(str(path), file_type=suffix[1:], force='mesh', process=False, skip_materials=True))
+
+
+def _as_mesh(geometry):
+    import numpy as np
+    import trimesh
+
+    if not isinstance(geometry, trimesh.Trimesh) or not len(geometry.faces):
+        raise ValueError('No triangle mesh found in this file.')
+    if not np.isfinite(geometry.vertices).all():
+        raise ValueError('Model contains invalid coordinates.')
+    return geometry
+
+
+def mesh_stl(path):
+    """Binary STL for the viewer, simplified when the model has more than MESH_FACE_LIMIT faces."""
+    geometry = load_mesh(path)
+    if len(geometry.faces) > MESH_FACE_LIMIT:
+        # Weld first: STL vertices are usually disconnected triangles.
+        geometry.merge_vertices()
+        geometry = geometry.simplify_quadric_decimation(face_count=MESH_FACE_LIMIT)
+    return geometry.export(file_type='stl')
+
+
+def cached_mesh(path, cache):
+    stat = path.stat()
+    identity = f'{MESH_VERSION}:{path}:{stat.st_size}:{stat.st_mtime_ns}'
+    key = hashlib.sha256(identity.encode()).hexdigest()
+    cache.mkdir(exist_ok=True)
+    destination = cache / (key + '.stl')
+    error_file = cache / (key + '.error')
+    if destination.exists():
+        return destination
+    if error_file.exists():
+        raise ValueError(error_file.read_text())
+    with RENDER_LOCK:
+        if destination.exists():
+            return destination
+        if error_file.exists():
+            raise ValueError(error_file.read_text())
+        try:
+            body = mesh_stl(path)
+            temporary = destination.with_suffix('.tmp')
+            temporary.write_bytes(body)
+            os.replace(temporary, destination)
+            return destination
+        except Exception as exc:
+            message = str(exc) if isinstance(exc, ValueError) else 'This file could not be shown in 3D.'
+            error_file.write_text(message)
+            raise ValueError(message) from exc

@@ -98,6 +98,7 @@ async function refresh() {
   }
 }
 function chooseView(next, collection = '') {
+  if (modelPageId) leaveModelPage();
   view = next;
   activeCollection = collection;
   activeTag = '';
@@ -133,7 +134,7 @@ function render() {
   $('#source-filter').value = previousSource;
   const names = { all: 'Library', favorites: 'Favorites', queue: 'To print', printed: 'Printed' };
   $('#page-title').textContent = view === 'collection' ? activeCollection : names[view] || names.all;
-  document.title = ($('#page-title').textContent || 'Library') + ' · Forma';
+  if (!modelPageId) document.title = ($('#page-title').textContent || 'Library') + ' · Forma';
   const base = models.filter(
     (m) =>
       view === 'all' ||
@@ -191,7 +192,7 @@ function render() {
         .slice(0, 3)
         .map((t) => `<span>${escapeHTML(t)}</span>`)
         .join('');
-      return `<article class="model-card ${selectedModels.has(m.id) ? 'is-selected' : ''}">${selectionMode ? `<label class="card-selection"><input type="checkbox" data-select-id="${m.id}" aria-label="Select ${escapeHTML(m.title)}" ${selectedModels.has(m.id) ? 'checked' : ''}></label>` : ''}<button class="card-open" data-open="${m.id}" aria-label="Open ${escapeHTML(m.title)}">${previewMarkup(m, 'card-image')}<div class="card-body"><div class="card-title-row"><h3>${escapeHTML(m.title)}</h3><span class="status-pill ${statusClass}">${escapeHTML(m.status)}</span></div><div class="creator">${escapeHTML(m.creator || 'Your collection')}<span class="source-label"> · ${escapeHTML(prettySource(m))}</span></div><div class="card-tags">${tags}${m.tags.length > 3 ? `<span>+${m.tags.length - 3}</span>` : ''}</div></div></button><button class="favorite-button ${m.favorite ? 'is-favorite' : ''}" data-favorite="${m.id}" aria-label="${m.favorite ? 'Remove from' : 'Add to'} favorites"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></button><div class="card-footer"><span>${count} file${count === 1 ? '' : 's'}</span><span>${escapeHTML(added)}</span></div></article>`;
+      return `<article class="model-card ${selectedModels.has(m.id) ? 'is-selected' : ''}">${selectionMode ? `<label class="card-selection"><input type="checkbox" data-select-id="${m.id}" aria-label="Select ${escapeHTML(m.title)}" ${selectedModels.has(m.id) ? 'checked' : ''}></label>` : ''}<a class="card-open" href="/models/${m.id}" data-open="${m.id}" aria-label="Open ${escapeHTML(m.title)}">${previewMarkup(m, 'card-image')}<div class="card-body"><div class="card-title-row"><h3>${escapeHTML(m.title)}</h3><span class="status-pill ${statusClass}">${escapeHTML(m.status)}</span></div><div class="creator">${escapeHTML(m.creator || 'Your collection')}<span class="source-label"> · ${escapeHTML(prettySource(m))}</span></div><div class="card-tags">${tags}${m.tags.length > 3 ? `<span>+${m.tags.length - 3}</span>` : ''}</div></div></a><button class="favorite-button ${m.favorite ? 'is-favorite' : ''}" data-favorite="${m.id}" aria-label="${m.favorite ? 'Remove from' : 'Add to'} favorites"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></button><div class="card-footer"><span>${count} file${count === 1 ? '' : 's'}</span><span>${escapeHTML(added)}</span></div></article>`;
     })
     .join('');
   watchPreviewErrors($('#model-grid'));
@@ -226,7 +227,6 @@ function openEditor(id = null, importing = false) {
     form.elements.tags.value = m.tags.join(', ');
     form.elements.favorite.checked = m.favorite;
   } else if (activeCollection) form.elements.collection.value = activeCollection;
-  if ($('#detail').open) $('#detail').close();
   $('#editor').showModal();
   setTimeout(() => (importing ? $('#import-url').focus() : form.elements.title.focus()), 10);
 }
@@ -318,7 +318,7 @@ async function saveModel(event) {
     $('#editor').close();
     await refresh();
     notify(warning || 'A new idea, safely on your shelf.');
-    openDetail(m.id);
+    openDetail(m.id, { push: !modelPageId });
   } catch (error) {
     $('#editor-message').textContent =
       error.message + (editingId ? ' Your catalog entry is saved; retry to finish attaching files.' : '');
@@ -328,41 +328,143 @@ async function saveModel(event) {
     button.textContent = editingId ? 'Save changes' : 'Save to library';
   }
 }
-function openDetail(id) {
+// ---------- Model page ----------
+// Each model has its own address (/models/<id>) so Back, bookmarks and links work.
+let modelPageId = null,
+  libraryScroll = 0,
+  viewer = null,
+  viewerScript = null;
+const VIEWABLE = /\.(stl|obj|3mf|zip)$/i;
+const backIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>';
+const heartIcon =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>';
+function loadViewerScript() {
+  if (window.FormaViewer) return Promise.resolve(window.FormaViewer);
+  viewerScript ||= new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = '/static/vendor/forma-viewer.js';
+    script.onload = () => resolve(window.FormaViewer);
+    script.onerror = () => {
+      viewerScript = null;
+      reject(new Error('The 3D viewer could not be loaded.'));
+    };
+    document.head.append(script);
+  });
+  return viewerScript;
+}
+function closeViewer() {
+  viewer?.dispose();
+  viewer = null;
+}
+function showPhoto(fileId) {
+  closeViewer();
+  $('#viewer-stage').hidden = true;
+  $('#viewer-meta').textContent = '';
+  const img = $('#detail-cover');
+  img.hidden = false;
+  if (fileId && img.tagName === 'IMG') img.src = '/api/files/' + fileId;
+  $$('#detail [data-photo], #detail [data-view3d]').forEach((b) =>
+    b.classList.toggle('selected', b.dataset.photo === fileId)
+  );
+}
+async function show3D(file) {
+  closeViewer();
+  $('#detail-cover').hidden = true;
+  $('#set-cover') && ($('#set-cover').hidden = true);
+  const stage = $('#viewer-stage'),
+    status = $('#viewer-status'),
+    meta = $('#viewer-meta');
+  stage.hidden = false;
+  status.hidden = false;
+  status.textContent = 'Loading 3D preview…';
+  meta.textContent = '';
+  $$('#detail [data-photo], #detail [data-view3d]').forEach((b) =>
+    b.classList.toggle('selected', b.dataset.view3d === file.id)
+  );
+  try {
+    const FormaViewer = await loadViewerScript();
+    if (!stage.isConnected) return;
+    viewer = FormaViewer.mount($('#viewer-canvas-host'), {
+      url: '/api/files/' + file.id + '/mesh',
+      onStatus: ({ state, progress, size, message }) => {
+        if (state === 'loading')
+          status.textContent = progress
+            ? `Loading 3D preview… ${Math.round(progress * 100)}%`
+            : 'Preparing 3D preview…';
+        if (state === 'ready') {
+          status.hidden = true;
+          meta.textContent = `${size.map((n) => (n >= 100 ? Math.round(n) : n.toFixed(1))).join(' × ')} mm · ${file.name} · Drag to turn, scroll or pinch to zoom`;
+        }
+        if (state === 'error') status.textContent = message;
+      },
+    });
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+function openDetail(id, { push = true } = {}) {
   const m = models.find((x) => x.id === id);
   if (!m) return;
+  const arriving = modelPageId !== id;
+  if (!modelPageId) libraryScroll = window.scrollY;
+  modelPageId = id;
+  if (push && location.pathname !== '/models/' + id)
+    history.pushState({ model: id, fromLibrary: true }, '', '/models/' + id);
+  closeViewer();
   const images = m.files.filter((f) => f.kind === 'image'),
-    files = m.files.filter((f) => f.kind !== 'image');
+    files = m.files.filter((f) => f.kind !== 'image'),
+    viewable = files.filter((f) => VIEWABLE.test(f.name));
+  const thumbs =
+    viewable
+      .map(
+        (f) =>
+          `<button class="thumb-3d" data-view3d="${f.id}" title="3D preview of ${escapeHTML(f.name)}" aria-label="3D preview of ${escapeHTML(f.name)}"><span>3D</span><small>${escapeHTML(f.name.replace(/\.[^.]+$/, ''))}</small></button>`
+      )
+      .join('') +
+    images
+      .map(
+        (f) =>
+          `<button data-photo="${f.id}" title="View ${escapeHTML(f.name)}"><img src="/api/files/${f.id}" alt="${escapeHTML(f.name)}" loading="lazy"></button>`
+      )
+      .join('');
+  const statusClass = 'status-' + m.status.toLowerCase().replace(/\s+/g, '-');
   $('#detail-content').innerHTML =
-    `<div class="detail-top">${previewMarkup(m, 'detail-cover', true)}<button class="close" data-close aria-label="Close">×</button></div><div class="detail-body"><div class="detail-heading"><div><div class="eyebrow">${escapeHTML(prettySource(m).toUpperCase())}</div><h2>${escapeHTML(m.title)}</h2><div class="creator">${escapeHTML(m.creator ? 'by ' + m.creator : 'Your personal collection')}${modelCollections(m).length ? ' · ' + escapeHTML(modelCollections(m).join(' · ')) : ''}</div></div><div class="detail-actions"><button class="button secondary" id="detail-favorite">${m.favorite ? '♥' : '♡'}</button><button class="button primary" id="edit-model">Edit model</button></div></div>${images.length ? `<div class="detail-gallery">${images.map((f) => `<button data-photo="${f.id}" title="View ${escapeHTML(f.name)}"><img src="/api/files/${f.id}" alt="${escapeHTML(f.name)}"></button>`).join('')}</div><button class="text-button" id="set-cover" hidden>Use this photo as cover</button>` : ''}<div class="card-tags"><span class="status-pill ${m.status === 'Printed' ? 'printed' : ''}">${escapeHTML(m.status)}</span>${m.tags.map((t) => `<span>${escapeHTML(t)}</span>`).join('')}</div><p class="detail-description">${escapeHTML(m.description || 'A little inspiration, ready for your notes.')}</p>${m.source_url ? `<a class="detail-source" href="${escapeHTML(m.source_url)}" target="_blank" rel="noopener noreferrer">View original model page ↗</a>` : ''}<h3 class="file-heading">MODEL FILES · ${files.length}</h3>${files.map((f) => `<div class="detail-file"><span>▱ &nbsp; ${escapeHTML(f.name)}</span><small>${bytes(f.size)}</small><div class="file-actions">${/\.(stl|3mf|obj|step|stp)$/i.test(f.name) ? `<button class="button secondary" data-slicer-file="${f.id}">Open in slicer</button>` : ''}<a href="/api/files/${f.id}?download=1" download>Download ↧</a></div></div>`).join('') || '<p class="muted">No model files yet. Upload downloaded files using Edit model.</p>'}<div class="detail-end"><span>Collected ${escapeHTML(new Date(m.created_at).toLocaleDateString())}</span><button class="danger-button" id="delete-model">Remove from library</button></div></div>`;
+    `<div class="model-page-bar"><a class="back-link" href="/" data-back>${backIcon}Library</a><div class="detail-actions"><button class="button secondary icon-button ${m.favorite ? 'is-favorite' : ''}" id="detail-favorite" aria-label="${m.favorite ? 'Remove from' : 'Add to'} favorites">${heartIcon}</button><button class="button primary" id="edit-model">Edit model</button></div></div>` +
+    `<div class="model-layout"><div class="model-media"><div class="model-stage">${previewMarkup(m, 'detail-cover', true)}<div class="viewer-stage" id="viewer-stage" hidden><div id="viewer-canvas-host"></div><p class="viewer-status" id="viewer-status" role="status"></p></div></div>` +
+    `${thumbs ? `<div class="detail-gallery">${thumbs}</div>` : ''}<div class="media-footer"><p class="viewer-meta" id="viewer-meta"></p><button class="text-button" id="set-cover" hidden>Use as cover</button></div></div>` +
+    `<div class="detail-body"><div class="detail-heading"><div><div class="eyebrow">${escapeHTML(prettySource(m))}</div><h2>${escapeHTML(m.title)}</h2><div class="creator">${escapeHTML(m.creator ? 'by ' + m.creator : 'Your collection')}${modelCollections(m).length ? ' · ' + escapeHTML(modelCollections(m).join(' · ')) : ''}</div></div></div>` +
+    `<div class="card-tags"><span class="status-pill ${statusClass}">${escapeHTML(m.status)}</span>${m.tags.map((t) => `<span>${escapeHTML(t)}</span>`).join('')}</div>` +
+    `${m.description ? `<p class="detail-description">${escapeHTML(m.description)}</p>` : ''}${m.source_url ? `<a class="detail-source" href="${escapeHTML(m.source_url)}" target="_blank" rel="noopener noreferrer">View original model page ↗</a>` : ''}` +
+    `<h3 class="file-heading">Files · ${files.length}</h3>${files.map((f) => `<div class="detail-file"><span>${escapeHTML(f.name)}</span><small>${bytes(f.size)}</small><div class="file-actions">${/\.(stl|3mf|obj|step|stp)$/i.test(f.name) ? `<button class="button secondary" data-slicer-file="${f.id}">Open in slicer</button>` : ''}<a href="/api/files/${f.id}?download=1" download>Download</a></div></div>`).join('') || '<p class="muted">No model files yet. Add downloaded files with Edit model.</p>'}` +
+    `<div class="detail-end"><span>Added ${escapeHTML(new Date(m.created_at).toLocaleDateString())}</span><button class="danger-button" id="delete-model">Remove from library</button></div></div></div>`;
   $('#edit-model').onclick = () => openEditor(m.id);
   $('#detail-favorite').onclick = async () => {
     await toggleFavorite(m.id);
-    openDetail(m.id);
+    openDetail(m.id, { push: false });
   };
   $('#delete-model').onclick = async () => {
     if (!confirm('Remove “' + m.title + '” and its uploaded files? Original files on your server share are kept.'))
       return;
     try {
       await api('/api/models/' + m.id, { method: 'DELETE' });
-      $('#detail').close();
+      leaveModelPage({ replace: true });
       await refresh();
       notify('Model removed from your library.');
     } catch (error) {
       notify(error.message);
     }
   };
-  $$('[data-photo]').forEach(
+  $$('#detail [data-photo]').forEach(
     (b) =>
       (b.onclick = () => {
-        const img = $('#detail-cover');
-        img.src = '/api/files/' + b.dataset.photo;
-        $('#set-cover').hidden = false;
-        $('#set-cover').onclick = async () => {
+        showPhoto(b.dataset.photo);
+        const setCover = $('#set-cover');
+        setCover.hidden = b.dataset.photo === m.cover_id;
+        setCover.onclick = async () => {
           try {
             await api('/api/models/' + m.id, { method: 'PATCH', body: JSON.stringify({ cover_id: b.dataset.photo }) });
             await refresh();
-            openDetail(m.id);
+            openDetail(m.id, { push: false });
             notify('Cover photo updated.');
           } catch (error) {
             notify(error.message);
@@ -370,11 +472,50 @@ function openDetail(id) {
         };
       })
   );
-  if (!$('#detail').open) $('#detail').showModal();
+  $$('#detail [data-view3d]').forEach((b) => (b.onclick = () => show3D(files.find((f) => f.id === b.dataset.view3d))));
+  document.body.classList.add('viewing-model');
+  $('#detail').hidden = false;
+  document.title = m.title + ' · Forma';
+  if (arriving) window.scrollTo(0, 0);
+  // Without a cover photo, the 3D preview is the best first view.
+  if (!m.cover_id && viewable.length) show3D(viewable[0]);
+  else $$('#detail [data-photo]').forEach((b) => b.classList.toggle('selected', b.dataset.photo === m.cover_id));
   if (typeof loadCatalogDetails === 'function') loadCatalogDetails(id);
   if (typeof loadSourceImport === 'function') loadSourceImport(id);
   watchPreviewErrors($('#detail'));
 }
+function showLibraryView() {
+  if (!modelPageId) return;
+  closeViewer();
+  modelPageId = null;
+  document.body.classList.remove('viewing-model');
+  $('#detail').hidden = true;
+  $('#detail-content').innerHTML = '';
+  $('#detail').dispatchEvent(new Event('close'));
+  render();
+  window.scrollTo(0, libraryScroll);
+}
+function leaveModelPage({ replace = false } = {}) {
+  if (!replace && history.state?.fromLibrary) return history.back();
+  history[replace ? 'replaceState' : 'pushState']({}, '', '/');
+  showLibraryView();
+}
+function route() {
+  const match = location.pathname.match(/^\/models\/([A-Za-z0-9-]+)$/);
+  if (match && models.some((m) => m.id === match[1])) return openDetail(match[1], { push: false });
+  if (match) {
+    history.replaceState({}, '', '/');
+    if (models.length) notify('That model is no longer in your library.');
+  }
+  showLibraryView();
+}
+window.addEventListener('popstate', route);
+document.addEventListener('click', (e) => {
+  const back = e.target.closest('[data-back]');
+  if (!back || e.metaKey || e.ctrlKey || e.shiftKey || e.button > 0) return;
+  e.preventDefault();
+  leaveModelPage();
+});
 async function toggleFavorite(id) {
   try {
     const m = models.find((m) => m.id === id);
@@ -509,7 +650,10 @@ document.addEventListener('click', (e) => {
     render();
   }
   const open = e.target.closest('[data-open]');
+  // Let Cmd/Ctrl/middle clicks open the model page in a new tab.
+  if (open && (e.metaKey || e.ctrlKey || e.shiftKey || e.button > 0)) return;
   if (open) {
+    e.preventDefault();
     if (selectionMode) {
       const id = open.dataset.open;
       selectedModels.has(id) ? selectedModels.delete(id) : selectedModels.add(id);
@@ -789,7 +933,7 @@ $('#settings-duplicates').onclick = () => {
 };
 setInterval(refreshWatchStatus, 30000);
 
-refresh();
+refresh().then(route);
 
 // Phone layout: the sidebar becomes a drawer opened from the header.
 function setMenu(open) {
@@ -803,5 +947,7 @@ $('#sidebar').addEventListener('click', (event) => {
   if (event.target.closest('button') && !event.target.closest('.collection-label')) setMenu(false);
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && document.body.classList.contains('menu-open')) setMenu(false);
+  if (event.key !== 'Escape') return;
+  if (document.body.classList.contains('menu-open')) setMenu(false);
+  else if (modelPageId && !$$('dialog').some((d) => d.open)) leaveModelPage();
 });

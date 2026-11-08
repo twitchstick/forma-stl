@@ -21,7 +21,7 @@ from urllib.parse import urljoin, urlsplit
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
-from previews import cached_preview
+from previews import MESH_FORMATS, cached_mesh, cached_preview
 from library_services import LibraryServices
 from makerworld_import import MakerWorldBridge
 from catalog_tools import register_catalog_tools
@@ -200,7 +200,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         if not public_read and request.path != '/api/auth/login':
             authenticated = account.authenticate()
             if not authenticated and not public_auth:
-                if request.path == '/':
+                if request.path == '/' or request.path.startswith('/models/'):
                     return send_from_directory(app.static_folder, 'login.html'), 401
                 return jsonify(error='Sign in to Forma.', login_required=True), 401
         if request.method in ('POST', 'PATCH', 'DELETE'):
@@ -340,6 +340,11 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
 
     @app.get('/')
     def home():
+        return send_from_directory(app.static_folder, 'index.html')
+
+    @app.get('/models/<id>')
+    def model_page(id):
+        # Model pages are rendered in the browser; deep links load the same app shell.
         return send_from_directory(app.static_folder, 'index.html')
 
     @app.get('/health')
@@ -561,6 +566,24 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             download_name=f['name'],
             conditional=True,
         )
+
+    @app.get('/api/files/<fid>/mesh')
+    def file_mesh(fid):
+        with db() as c:
+            f = c.execute('SELECT * FROM files WHERE id=? AND kind=?', (fid, 'model')).fetchone()
+        if not f:
+            abort(404)
+        path = Path(f['path']).resolve()
+        root = library if f['external'] else uploads
+        if not path.is_relative_to(root) or not path.is_file():
+            abort(404, 'File no longer exists at its original location.')
+        if path.suffix.lower() not in MESH_FORMATS:
+            abort(422, '3D preview supports STL, OBJ, 3MF and model ZIP files.')
+        try:
+            mesh = cached_mesh(path, data / 'meshes')
+        except ValueError as exc:
+            abort(422, str(exc))
+        return send_file(mesh, mimetype='model/stl', conditional=True, max_age=86400)
 
     @app.get('/api/models/<id>/thumbnail')
     def thumbnail(id):

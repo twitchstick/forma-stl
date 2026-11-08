@@ -5,6 +5,7 @@ A personal, self-hosted STL library for Unraid with dark, light and system appea
 ## What works
 
 - Photo-first grid and list views; photo galleries and selectable covers.
+- A page for every model at its own address (`/models/<id>`), so Back, bookmarks and shared links work. Turn STL, 3MF, OBJ and zipped models in 3D right in the browser; the server sends a simplified copy (at most 150,000 triangles, cached in `/data/meshes`) so large files stay quick on phones.
 - Automatic previews for existing and new entries: use embedded 3MF creator photos first, then slicer thumbnails, with software-rendered STL/OBJ/3MF geometry as a fallback. Model ZIPs can supply an embedded photo or a model preview too. Uploaded/source-page cover photos take priority.
 - Search titles, creators, descriptions, collections, and tags.
 - Bulk edit selected models: add/remove tags, assign/clear collections, change print status and favorite state.
@@ -208,3 +209,13 @@ docker exec -it forma python account_admin.py reset-password
 ```
 
 Add `--username NEWNAME` only if you also need to recover the username. Recovery signs out all browsers and revokes existing companion pairings and slicer links.
+
+## 3D viewer
+
+The viewer is built from `viewer/src/viewer.js` with three.js (MIT licence, notice kept in the bundle) into `static/vendor/forma-viewer.js`, which is committed so the Docker image needs no build step. After changing the source, rebuild it:
+
+```sh
+cd viewer && npm ci --ignore-scripts && npm run build
+```
+
+CI fails if the committed bundle does not match its source.

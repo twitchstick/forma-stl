@@ -35,14 +35,14 @@ async function loadSourceImport(id) {
   async function poll() {
     try {
       const status = await api('/api/models/' + id + '/source-import');
-      if (generation !== sourceGeneration || !mount.isConnected || !$('#detail').open) return;
+      if (generation !== sourceGeneration || !mount.isConnected || $('#detail').hidden) return;
       const working = status.job && ['queued', 'running'].includes(status.job.state);
       const fresh = status.model,
         old = models.find((m) => m.id === id);
       if (!working && fresh && JSON.stringify(fresh) !== JSON.stringify(old)) {
         models = models.map((m) => (m.id === id ? fresh : m));
         render();
-        openDetail(id);
+        openDetail(id, { push: false });
         return;
       }
       renderSourcePanel(models.find((m) => m.id === id) || m, status, mount);

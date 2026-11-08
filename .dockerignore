@@ -5,3 +5,4 @@ __pycache__
 tests
 data
 *.sqlite3*
+viewer

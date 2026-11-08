@@ -90,6 +90,7 @@ w.fetch = async (url, opt = {}) => {
 };
 const tick = () => new Promise((r) => setTimeout(r, 10));
 (async () => {
+  w.scrollTo = () => {}; // jsdom does not implement scrolling
   w.eval(
     ['app.js', 'catalog.js', 'source.js'].map((n) => fs.readFileSync(path.join(root, 'static', n), 'utf8')).join('\n')
   );

@@ -97,6 +97,7 @@ function submit(form) {
   );
 }
 (async () => {
+  w.scrollTo = () => {}; // jsdom does not implement scrolling
   w.eval(
     ['app.js', 'catalog.js', 'slicer.js'].map((n) => fs.readFileSync(path.join(root, 'static', n), 'utf8')).join('\n')
   );
@@ -123,7 +124,8 @@ function submit(form) {
   assert.deepEqual(mint[0], { slicer: 'snapmaker', platform: 'mac' });
   assert.match($('#slicer-launch').href, /^snapmaker-orca:/);
   assert.match($('#slicer-download').href, /\/api\/files\/file1\?download=1$/);
-  assert.equal(w.location.href, 'http://forma.test/');
+  // The slicer handoff must not navigate away from the model page.
+  assert.equal(w.location.href, 'http://forma.test/models/a');
   change($('#slicer-target'), 'bambu');
   assert.equal($('#slicer-ready').hidden, true);
   assert.equal($('#slicer-launch').hasAttribute('href'), false);

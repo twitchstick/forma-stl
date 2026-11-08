@@ -90,6 +90,7 @@ function submit(form) {
   );
 }
 (async () => {
+  w.scrollTo = () => {}; // jsdom does not implement scrolling
   w.eval(
     fs.readFileSync(path.join(root, 'static/app.js'), 'utf8') +
       '\nfunction openMakerWorld(id){window.reviewed=id;}\n' +
