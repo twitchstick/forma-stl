@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>forma</Name>
-  <Repository>forma:local</Repository>
+  <Repository>ghcr.io/twitchstick/forma-stl:latest</Repository>
   <Registry/>
   <Icon>https://raw.githubusercontent.com/twitchstick/forma-stl/main/static/app-icon.png</Icon>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
-  <Overview>Forma: a personal, image-first STL catalog. Build the forma:local image from the repository first. /data holds your catalog and uploads; /library is your existing model share mounted read-only.</Overview>
+  <Overview>Forma: a personal, image-first STL catalog. /data holds your catalog and uploads; /library is your existing model share mounted read-only.</Overview>
   <Category>Productivity:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <ExtraParams>--restart unless-stopped</ExtraParams>

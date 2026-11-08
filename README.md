@@ -22,11 +22,9 @@ A personal, self-hosted STL library for Unraid with dark, light and system appea
 
 ## Install on Unraid
 
-Use a terminal on your Unraid server. Clone this repository to a persistent share, then enter the checkout directory.
+Forma is published as a ready-made image, `ghcr.io/twitchstick/forma-stl:latest`, rebuilt automatically whenever `main` passes its tests. Unraid's **Check for updates / Apply update** pulls new versions; nothing needs to be built on the server.
 
 ```sh
-# Run from your cloned Forma repository:
-docker build -t forma:local .
 mkdir -p /mnt/user/appdata/forma
 ```
 
@@ -45,21 +43,21 @@ docker run -d \
   --label 'net.unraid.docker.webui=http://[IP]:[PORT:8080]/' \
   --log-opt max-size=10m \
   --log-opt max-file=3 \
-  forma:local
+  ghcr.io/twitchstick/forma-stl:latest
 ```
 
 Open `http://YOUR-UNRAID-IP:8086` and sign in with the username/password you set. Use **Import server folder** to catalog your existing share, **Add model** for uploads, or **Import from URL** for a source page.
 
 ### Unraid Docker template
 
-After building `forma:local`, copy `unraid/forma.xml` to `/boot/config/plugins/dockerMan/templates-user/my-forma.xml`. In Unraid, use **Docker → Add Container** and select the Forma user template. Set the share path and password before applying. Use either the template or the terminal command to create the container, not both.
+Copy `unraid/forma.xml` to `/boot/config/plugins/dockerMan/templates-user/my-forma.xml`. In Unraid, use **Docker → Add Container** and select the Forma user template. Set the share path and password before applying. Use either the template or the terminal command to create the container, not both.
 
 ### Compose (optional)
 
 Unraid does not include Compose by default. If you already have a Compose plugin installed, edit `compose.yaml` to use your share, copy `.env.example` to `.env`, set a password, then run:
 
 ```sh
-docker compose up -d --build
+docker compose up -d
 ```
 
 ### Storage and access
@@ -124,7 +122,7 @@ Automatic thumbnails are generated on demand and cached in `/data/thumbnails`. E
 
 ## Update
 
-Back up first. In your repository checkout, run `git pull`, then rebuild `docker build -t forma:local .`. Recreate the container using the same ports, environment, and volume mappings. The data stays in your appdata folder. With Compose, run `docker compose up -d --build`.
+Back up first. In Unraid, use **Docker → Check for updates**, then **Apply update** on Forma. The data stays in your appdata folder. With Compose, run `docker compose pull && docker compose up -d`. To run your own changes instead, build locally with `docker build -t forma:local .` and use `forma:local` as the repository.
 
 ## Local development and tests
 

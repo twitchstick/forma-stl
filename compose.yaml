@@ -1,7 +1,6 @@
 services:
   forma:
-    build: .
-    image: forma:local
+    image: ghcr.io/twitchstick/forma-stl:latest
     container_name: forma
     restart: unless-stopped
     ports:
