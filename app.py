@@ -235,7 +235,12 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     def error(exc):
         if isinstance(exc, HTTPException):
             return jsonify(error=exc.description), exc.code
-        if isinstance(exc, (ValueError, KeyError)):
+        if isinstance(exc, KeyError):
+            # A missing dict key names an internal field; log it, don't echo it.
+            app.logger.info('Request missing field %r on %s', exc.args[0] if exc.args else '', request.path)
+            return jsonify(error='Part of the request is missing. Reload the page and try again.'), 400
+        if isinstance(exc, ValueError):
+            # Validation messages in Forma are written for the person using it.
             return jsonify(error=str(exc)), 400
         app.logger.exception('Request failed')
         return jsonify(error='The request failed. Check server logs for details.'), 500

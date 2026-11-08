@@ -193,6 +193,19 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual((r.json['title'], r.json['favorite'], r.json['tags']), ('Tall vase', True, ['vase']))
         self.assertEqual([x['id'] for x in self.client.get('/api/models').json], [m['id']])
 
+    def test_missing_fields_do_not_reveal_internal_names(self):
+        app = create_app(self.root / 'data2', self.library)
+
+        @app.post('/api/test-missing')
+        def missing():
+            return {}['internal_column_name']
+
+        r = app.test_client().post('/api/test-missing', headers=self.headers)
+        self.assertEqual(r.status_code, 400)
+        self.assertNotIn('internal_column_name', r.get_data(as_text=True))
+        bad = self.client.post('/api/models', json={'title': ''}, headers=self.headers)
+        self.assertEqual(bad.json['error'], 'Give this model a title.')
+
     def test_startup_requires_a_password(self):
         with patch.dict(os.environ, {'FORMA_PASSWORD': '', 'FORMA_ALLOW_NO_PASSWORD': ''}):
             with self.assertRaises(SystemExit):
