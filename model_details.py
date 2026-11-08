@@ -7,6 +7,8 @@ import threading
 import zipfile
 from pathlib import Path
 
+import workers
+
 LIMIT = 128 * 1024 * 1024
 LOCK = threading.Lock()
 SETTING_KEYS = {
@@ -77,6 +79,20 @@ def inspect_mesh(body, suffix):
             with zipfile.ZipFile(io.BytesIO(body)) as z:
                 archive_safe(z)
                 result['settings'] = settings_from(z)
+        if suffix == '.3mf':
+            # Streamed reader: a fraction of the memory of loading the full XML tree.
+            from previews import read_3mf
+
+            try:
+                arrays = read_3mf(body)
+            except Exception:
+                arrays = None
+            if arrays is not None:
+                size = arrays[0].max(axis=0) - arrays[0].min(axis=0)
+                if np.isfinite(size).all() and size.any():
+                    result['dimensions_mm'] = [round(float(v), 3) for v in size]
+                    result['note'] = '3MF build layout, including placed parts; dimensions converted to mm.'
+                    return result
         scene = trimesh.load(
             io.BytesIO(body), file_type=suffix[1:], force='scene', process=False, skip_materials=True, resolver={}
         )
@@ -99,10 +115,32 @@ def inspect_mesh(body, suffix):
     return result
 
 
+def binary_stl_size(path):
+    """Bounding-box size of a binary STL straight from its triangles, or None."""
+    import numpy as np
+
+    with open(path, 'rb') as f:
+        header = f.read(84)
+    count = int.from_bytes(header[80:84], 'little') if len(header) == 84 else 0
+    if not count or path.stat().st_size != 84 + count * 50:
+        return None
+    record = np.dtype([('normal', '<f4', (3,)), ('corners', '<f4', (3, 3)), ('attribute', '<u2')])
+    corners = np.fromfile(path, dtype=record, count=count, offset=84)['corners'].reshape(-1, 3)
+    if not np.isfinite(corners).all():
+        return None
+    size = corners.max(axis=0) - corners.min(axis=0)
+    return [round(float(v), 3) for v in size] if size.any() else None
+
+
 def analyze(path):
     if path.stat().st_size > LIMIT:
         return {'entries': [], 'error': 'File exceeds the 128 MB analysis limit.'}
     suffix = path.suffix.lower()
+    if suffix == '.stl':
+        size = binary_stl_size(path)
+        if size:
+            entry = {'dimensions_mm': size, 'settings': {}, 'note': 'Units assumed to be millimetres.', 'error': ''}
+            return {'entries': [{'name': path.name, **entry}], 'error': ''}
     if suffix in ('.stl', '.obj', '.3mf'):
         return {'entries': [{'name': path.name, **inspect_mesh(path.read_bytes(), suffix)}], 'error': ''}
     if suffix == '.zip':
@@ -147,7 +185,10 @@ def cached_details(path, cache):
     with LOCK:
         if destination.exists():
             return json.loads(destination.read_text())
-        result = analyze(path)
+        try:
+            result = workers.run(analyze, path)
+        except workers.WorkerFailed as exc:
+            result = {'entries': [], 'error': str(exc)}
         temp = destination.with_suffix('.tmp')
         temp.write_text(json.dumps(result))
         temp.replace(destination)

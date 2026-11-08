@@ -8,6 +8,7 @@ services:
     environment:
       FORMA_USERNAME: "${FORMA_USERNAME:-admin}"
       FORMA_PASSWORD: "${FORMA_PASSWORD:?Set FORMA_PASSWORD in .env}"
+      FORMA_WORKER_MEMORY_MB: "${FORMA_WORKER_MEMORY_MB:-2048}"
     volumes:
       - /mnt/user/appdata/forma:/data
       - /mnt/user/3d-printing:/library:ro
@@ -15,6 +16,7 @@ services:
       net.unraid.docker.managed: dockerman
       net.unraid.docker.icon: "${FORMA_ICON_URL:-https://raw.githubusercontent.com/twitchstick/forma-stl/main/static/app-icon.png}"
       net.unraid.docker.webui: "http://[IP]:[PORT:8080]/"
+    mem_limit: 3g
     logging:
       driver: json-file
       options:

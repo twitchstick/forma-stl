@@ -11,6 +11,7 @@ from urllib.parse import quote
 from flask import abort, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 from migrations import add_columns
+import workers
 
 SLICERS = {'bambu': 'Bambu Studio', 'snapmaker': 'Snapmaker Orca'}
 FORMATS = {'.stl', '.3mf', '.obj', '.step', '.stp'}
@@ -59,10 +60,29 @@ PRESETS = [
 ]
 
 
-def converted_3mf(path, cache):
+def build_3mf(path, destination):
+    """Write a 3MF copy of an STL/OBJ for slicers that only open 3MF. Runs in a worker process."""
     import numpy as np
     import trimesh
 
+    scene = trimesh.load(
+        io.BytesIO(path.read_bytes()),
+        file_type=path.suffix.lower()[1:],
+        force='scene',
+        process=False,
+        skip_materials=True,
+        resolver={},
+    )
+    if not scene.geometry or not np.isfinite(scene.bounds).all():
+        raise ValueError('No usable mesh geometry.')
+    # STL/OBJ unit assumptions match Forma's measurements. Translation only;
+    # no scaling or changes to the original attachment.
+    scene.units = 'mm'
+    scene.apply_translation(-scene.bounds[0])
+    destination.write_bytes(scene.export(file_type='3mf'))
+
+
+def converted_3mf(path, cache):
     stat = path.stat()
     if stat.st_size > 128 * 1024 * 1024:
         raise ValueError('This mesh is too large to prepare automatically. Download it and open it in Bambu Studio.')
@@ -73,28 +93,14 @@ def converted_3mf(path, cache):
         if target.exists():
             target.touch()
             return target
+        temporary = target.with_suffix('.tmp')
         try:
-            scene = trimesh.load(
-                io.BytesIO(path.read_bytes()),
-                file_type=path.suffix.lower()[1:],
-                force='scene',
-                process=False,
-                skip_materials=True,
-                resolver={},
-            )
-            if not scene.geometry or not np.isfinite(scene.bounds).all():
-                raise ValueError('No usable mesh geometry.')
-            # STL/OBJ unit assumptions match Forma's measurements. Translation only;
-            # no scaling or changes to the original attachment.
-            scene.units = 'mm'
-            scene.apply_translation(-scene.bounds[0])
-            body = scene.export(file_type='3mf')
+            workers.run(build_3mf, path, temporary)
         except Exception as exc:
+            temporary.unlink(missing_ok=True)
             raise ValueError(
                 'A 3MF copy could not be prepared. Download the original and open it in your slicer.'
             ) from exc
-        temporary = target.with_suffix('.tmp')
-        temporary.write_bytes(body)
         temporary.replace(target)
     return target
 

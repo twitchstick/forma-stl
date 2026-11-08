@@ -1,5 +1,7 @@
 FROM python:3.13-slim
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 FORMA_DATA=/data FORMA_LIBRARY=/library PORT=8080
+# MALLOC_ARENA_MAX stops glibc keeping a separate memory pool per server thread.
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 FORMA_DATA=/data FORMA_LIBRARY=/library PORT=8080 \
+    MALLOC_ARENA_MAX=2 FORMA_WORKER_MEMORY_MB=2048
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && mkdir -p /data /library

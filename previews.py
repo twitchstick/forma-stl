@@ -1,4 +1,8 @@
-"""Cached previews: preserve embedded slicer images before rendering geometry."""
+"""Cached previews: preserve embedded slicer images before rendering geometry.
+
+Geometry work (thumbnails and 3D viewer meshes) runs through workers.run, so
+it happens in a short-lived process with a memory budget, one job at a time.
+"""
 
 import hashlib
 import io
@@ -8,10 +12,13 @@ import threading
 import zipfile
 from pathlib import Path
 
+import workers
+
 MAX_MODEL_BYTES = 256 * 1024 * 1024
 MAX_IMAGE_BYTES = 16 * 1024 * 1024
-PREVIEW_VERSION = 'v1'
+PREVIEW_VERSION = 'v2'
 RENDER_LOCK = threading.Lock()
+MODEL_PARTS = ('.stl', '.obj', '.3mf')
 
 
 def embedded_image(archive):
@@ -68,22 +75,310 @@ def normalize_image(body):
         return result.getvalue()
 
 
-def render_mesh(path_or_stream, file_type):
-    """Software orthographic render. No browser, GPU or display server needed."""
-    import numpy as np
-    import trimesh
-    from PIL import Image, ImageDraw, ImageFilter
+# ---------- Loading geometry ----------
 
-    geometry = trimesh.load(path_or_stream, file_type=file_type, force='mesh', process=False, skip_materials=True)
-    if not isinstance(geometry, trimesh.Trimesh) or not len(geometry.faces):
+
+def read_binary_stl(source):
+    """Vertices and faces from a binary STL, or None if it is not one.
+
+    Reads the triangles straight into numpy and welds shared corners, using a
+    fraction of the memory a general-purpose loader needs for large files.
+    source is a Path or the file's bytes.
+    """
+    import numpy as np
+
+    from_bytes = isinstance(source, (bytes, bytearray))
+    if from_bytes:
+        header, size = bytes(source[:84]), len(source)
+    else:
+        with open(source, 'rb') as f:
+            header = f.read(84)
+        size = source.stat().st_size
+    if len(header) < 84:
+        return None
+    count = int.from_bytes(header[80:84], 'little')
+    if not count or size != 84 + count * 50:
+        return None  # ASCII STL or a damaged file: use the general loader.
+    record = np.dtype([('normal', '<f4', (3,)), ('corners', '<f4', (3, 3)), ('attribute', '<u2')])
+    if from_bytes:
+        records = np.frombuffer(source, dtype=record, count=count, offset=84)
+    else:
+        records = np.fromfile(source, dtype=record, count=count, offset=84)
+    corners = records['corners'].reshape(-1, 3)
+    del records
+    vertices, inverse = np.unique(corners, axis=0, return_inverse=True)
+    return vertices, inverse.reshape(-1, 3).astype(np.int32)
+
+
+UNIT_MM = {'micron': 0.001, 'millimeter': 1.0, 'centimeter': 10.0, 'inch': 25.4, 'foot': 304.8, 'meter': 1000.0}
+
+
+def _transform(text):
+    """3MF 3x4 transform as (3x3 matrix, translation); points map as p @ m + t."""
+    import numpy as np
+
+    if not text:
+        return None
+    values = [float(v) for v in text.split()]
+    if len(values) != 12:
+        raise ValueError('Invalid 3MF transform.')
+    return np.array(values[:9]).reshape(3, 3), np.array(values[9:])
+
+
+def _compose(inner, outer):
+    if inner is None:
+        return outer
+    if outer is None:
+        return inner
+    return inner[0] @ outer[0], inner[1] @ outer[0] + outer[1]
+
+
+def read_3mf(source):
+    """(vertices in mm, faces) for a whole 3MF build, read piece by piece.
+
+    A general XML loader keeps the full document tree in memory, which for a
+    large 3MF is many times the file size. This streams each model part into
+    compact arrays instead, and follows components, separate part files
+    (the 3MF production extension used by Bambu Studio and Orca) and placement
+    transforms. Returns None when the file uses something it does not handle,
+    so the caller can fall back to the general loader.
+    """
+    from array import array
+
+    import numpy as np
+    from lxml import etree
+
+    archive = zipfile.ZipFile(io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source)
+    with archive:
+        names = {i.filename.lstrip('/'): i for i in archive.infolist()}
+        root_name = next((n for n in names if n.lower() == '3d/3dmodel.model'), None)
+        if root_name is None:
+            return None
+        objects, items, unit = {}, [], [1.0]
+
+        def local(tag):
+            return tag.rsplit('}', 1)[-1]
+
+        def path_attr(element):
+            return next((v.lstrip('/') for k, v in element.attrib.items() if local(k) == 'path'), None)
+
+        def parse(name):
+            if name not in names:
+                raise ValueError('A 3MF part is missing.')
+            with archive.open(names[name]) as f:
+                if b'<!DOCTYPE' in f.read(4096).upper():
+                    raise ValueError('XML document type declarations are not supported.')
+            current, vertices, triangles, components = None, None, None, None
+            with archive.open(names[name]) as f:
+                context = etree.iterparse(
+                    f, events=('start', 'end'), resolve_entities=False, no_network=True, huge_tree=True
+                )
+                for event, element in context:
+                    tag = local(element.tag)
+                    if event == 'start':
+                        if tag == 'model' and name == root_name:
+                            unit[0] = UNIT_MM.get(element.get('unit', 'millimeter'), 1.0)
+                        elif tag == 'object':
+                            current, vertices, triangles, components = element.get('id'), None, None, None
+                        elif tag == 'mesh':
+                            vertices, triangles = array('f'), array('i')
+                        elif tag == 'components':
+                            components = []
+                        elif tag == 'component' and components is not None:
+                            components.append(
+                                (
+                                    path_attr(element) or name,
+                                    element.get('objectid'),
+                                    _transform(element.get('transform')),
+                                )
+                            )
+                        elif tag == 'item' and name == root_name:
+                            items.append(
+                                (
+                                    path_attr(element) or name,
+                                    element.get('objectid'),
+                                    _transform(element.get('transform')),
+                                )
+                            )
+                        continue
+                    if tag == 'vertex':
+                        vertices.extend((float(element.get('x')), float(element.get('y')), float(element.get('z'))))
+                    elif tag == 'triangle':
+                        triangles.extend((int(element.get('v1')), int(element.get('v2')), int(element.get('v3'))))
+                    elif tag == 'object':
+                        if vertices is not None:
+                            objects[(name, current)] = ('mesh', vertices, triangles)
+                        elif components is not None:
+                            objects[(name, current)] = ('components', components)
+                        current = None
+                    # Drop finished elements so the tree never grows.
+                    if tag in ('vertex', 'triangle', 'component', 'item', 'object'):
+                        element.clear()
+                        parent = element.getparent()
+                        while parent is not None and element.getprevious() is not None:
+                            del parent[0]
+
+        parse(root_name)
+        parsed = {root_name}
+        if not items:
+            items = [(n, i, None) for (n, i), o in objects.items() if n == root_name and o[0] == 'mesh']
+        all_vertices, all_faces, offset = [], [], 0
+
+        def emit(name, object_id, transform, depth=0):
+            nonlocal offset
+            if depth > 16:
+                raise ValueError('3MF components nest too deeply.')
+            if name not in parsed:
+                parse(name)
+                parsed.add(name)
+            entry = objects.get((name, object_id))
+            if entry is None:
+                raise ValueError('A 3MF object is missing.')
+            if entry[0] == 'components':
+                for child_name, child_id, child_transform in entry[1]:
+                    emit(child_name, child_id, _compose(child_transform, transform), depth + 1)
+                return
+            points = np.frombuffer(entry[1], dtype=np.float32).reshape(-1, 3).astype(np.float64)
+            faces = np.frombuffer(entry[2], dtype=np.int32).reshape(-1, 3)
+            if len(faces) and (faces.min() < 0 or faces.max() >= len(points)):
+                raise ValueError('3MF triangle refers to a missing vertex.')
+            if transform is not None:
+                points = points @ transform[0] + transform[1]
+            all_vertices.append(points.astype(np.float32))
+            all_faces.append(faces + offset)
+            offset += len(points)
+
+        for name, object_id, transform in items:
+            emit(name, object_id, transform)
+    if not all_faces:
         raise ValueError('No triangle mesh found in this file.')
-    if len(geometry.faces) > 60_000:
+    vertices = np.concatenate(all_vertices)
+    if unit[0] != 1.0:
+        vertices *= unit[0]
+    return vertices, np.concatenate(all_faces).astype(np.int32)
+
+
+def mesh_arrays(source, file_type):
+    """Welded (vertices, faces) from an STL, OBJ or 3MF path or bytes."""
+    import numpy as np
+
+    arrays = read_binary_stl(source) if file_type == 'stl' else None
+    if file_type == '3mf':
+        try:
+            arrays = read_3mf(source)
+        except (zipfile.BadZipFile, KeyError, TypeError, AttributeError, SyntaxError, ValueError):
+            arrays = None  # Let the general loader try, or report the problem.
+    if arrays is None:
+        import trimesh
+
+        stream = io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else str(source)
+        geometry = trimesh.load(stream, file_type=file_type, force='mesh', process=False, skip_materials=True)
+        if not isinstance(geometry, trimesh.Trimesh):
+            raise ValueError('No triangle mesh found in this file.')
         # Weld before decimation: STL vertices are often disconnected triangles.
         geometry.merge_vertices()
-        geometry = geometry.simplify_quadric_decimation(face_count=60_000)
-    triangles = np.array(geometry.triangles, dtype=np.float64, copy=True)
-    if not np.isfinite(triangles).all():
+        arrays = geometry.vertices, geometry.faces
+        del geometry
+    vertices, faces = arrays
+    if not len(faces):
+        raise ValueError('No triangle mesh found in this file.')
+    if not np.isfinite(vertices).all():
         raise ValueError('Model contains invalid coordinates.')
+    return vertices, faces
+
+
+def clustered(vertices, faces, target_faces):
+    """Cheap first pass for very large meshes: merge vertices that share a grid cell.
+
+    Picks a cell size so that roughly target_faces triangles survive, using a
+    fraction of the memory quadric simplification needs for millions of faces.
+    """
+    import numpy as np
+
+    vertices = np.asarray(vertices, dtype=np.float32)
+    low = vertices.min(axis=0)
+    extent = float((vertices.max(axis=0) - low).max()) or 1.0
+    target_vertices = max(target_faces // 2, 1000)
+    # Surface meshes have roughly as many occupied cells as vertices; refine the cell size twice.
+    cell = extent / np.sqrt(target_vertices)
+    for _ in range(4):
+        keys = np.floor((vertices - low) / cell).astype(np.int64)
+        keys = (keys[:, 0] * 2_097_152 + keys[:, 1]) * 2_097_152 + keys[:, 2]
+        cells, inverse = np.unique(keys, return_inverse=True)
+        if len(cells) <= target_vertices * 1.3:
+            break
+        cell *= float(np.sqrt(len(cells) / target_vertices))
+    inverse = inverse.astype(np.int32)
+    counts = np.bincount(inverse, minlength=len(cells)).astype(np.float32)[:, None]
+    merged = np.zeros((len(cells), 3), dtype=np.float32)
+    np.add.at(merged, inverse, vertices)
+    merged /= counts
+    remapped = inverse[faces]
+    keep = (remapped[:, 0] != remapped[:, 1]) & (remapped[:, 1] != remapped[:, 2]) & (remapped[:, 0] != remapped[:, 2])
+    return merged, remapped[keep]
+
+
+def simplified(vertices, faces, limit):
+    """Reduce to at most `limit` triangles, keeping the shape."""
+    import numpy as np
+
+    if len(faces) <= limit:
+        return vertices, faces
+    import fast_simplification
+
+    faces = np.asarray(faces, dtype=np.int32)
+    if len(faces) > limit * 4:
+        vertices, faces = clustered(vertices, faces, limit * 4)
+    if len(faces) <= limit:
+        return vertices, faces
+    return fast_simplification.simplify(vertices, faces, target_count=limit)
+
+
+def zip_model_parts(archive):
+    return sorted(
+        (
+            i
+            for i in archive.infolist()
+            if Path(i.filename).suffix.lower() in MODEL_PARTS and not i.filename.startswith('__MACOSX/')
+        ),
+        key=lambda i: i.filename,
+    )
+
+
+def load_geometry(path):
+    """Welded (vertices, faces) for an STL/OBJ/3MF file or the first usable model in a ZIP."""
+    suffix = path.suffix.lower()
+    if suffix == '.zip':
+        with zipfile.ZipFile(path) as archive:
+            if sum(i.file_size for i in archive.infolist()) > MAX_MODEL_BYTES:
+                raise ValueError('This file is too large to process.')
+            for part in zip_model_parts(archive):
+                try:
+                    return mesh_arrays(archive.read(part), Path(part.filename).suffix.lower()[1:])
+                except Exception:
+                    continue
+        raise ValueError('No supported model found in this ZIP.')
+    if suffix == '.3mf':
+        with zipfile.ZipFile(path) as archive:
+            if sum(i.file_size for i in archive.infolist()) > MAX_MODEL_BYTES:
+                raise ValueError('This file is too large to process.')
+    elif path.stat().st_size > MAX_MODEL_BYTES:
+        raise ValueError('This file is too large to process.')
+    if suffix not in MODEL_PARTS:
+        raise ValueError('Supported formats are STL, OBJ, 3MF and model ZIP files.')
+    return mesh_arrays(path, suffix[1:])
+
+
+# ---------- Thumbnails ----------
+
+
+def render_mesh(vertices, faces):
+    """Software orthographic render. No browser, GPU or display server needed."""
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFilter
+
+    vertices, faces = simplified(vertices, faces, 60_000)
+    triangles = np.asarray(vertices, dtype=np.float64)[np.asarray(faces)]
     vertices = triangles.reshape((-1, 3))
     center = (vertices.min(axis=0) + vertices.max(axis=0)) / 2
     triangles -= center
@@ -122,45 +417,23 @@ def render_mesh(path_or_stream, file_type):
 
 
 def generate_preview(path):
+    """PNG thumbnail: an image embedded by the slicer if there is one, otherwise a render."""
     suffix = path.suffix.lower()
-    if suffix not in ('.3mf', '.zip') and path.stat().st_size > MAX_MODEL_BYTES:
-        raise ValueError('Model is too large for automatic preview.')
     if suffix in ('.3mf', '.zip'):
         with zipfile.ZipFile(path) as archive:
             image = embedded_image(archive)
             if image:
                 return image
-            # Bound uncompressed geometry size as well as the ZIP on disk.
-            if sum(i.file_size for i in archive.infolist()) > MAX_MODEL_BYTES:
-                raise ValueError('Archive is too large for automatic preview.')
             if suffix == '.zip':
-                parts = sorted(
-                    (
-                        i
-                        for i in archive.infolist()
-                        if Path(i.filename).suffix.lower() in ('.stl', '.obj', '.3mf')
-                        and not i.filename.startswith('__MACOSX/')
-                    ),
-                    key=lambda i: i.filename,
-                )
-                for part in parts:
-                    body = archive.read(part)
-                    kind = Path(part.filename).suffix.lower()[1:]
-                    if kind == '3mf':
-                        with zipfile.ZipFile(io.BytesIO(body)) as nested:
+                for part in zip_model_parts(archive):
+                    if Path(part.filename).suffix.lower() == '.3mf' and part.file_size <= MAX_MODEL_BYTES:
+                        with zipfile.ZipFile(io.BytesIO(archive.read(part))) as nested:
                             image = embedded_image(nested)
                             if image:
                                 return image
-                            if sum(i.file_size for i in nested.infolist()) > MAX_MODEL_BYTES:
-                                continue
-                    try:
-                        return render_mesh(io.BytesIO(body), kind)
-                    except Exception:
-                        continue
-                raise ValueError('No supported model or preview image found in this ZIP.')
-    if suffix not in ('.stl', '.obj', '.3mf'):
+    elif suffix not in MODEL_PARTS:
         raise ValueError('Automatic previews support STL, OBJ, 3MF and model ZIP files.')
-    return render_mesh(str(path), suffix[1:])
+    return render_mesh(*load_geometry(path))
 
 
 def cached_preview(path, cache):
@@ -174,14 +447,14 @@ def cached_preview(path, cache):
         return destination
     if error_file.exists():
         raise ValueError(error_file.read_text())
-    # Keep peak mesh memory bounded and avoid duplicate work for the same file.
+    # Avoid duplicate work for the same file; workers.run bounds memory.
     with RENDER_LOCK:
         if destination.exists():
             return destination
         if error_file.exists():
             raise ValueError(error_file.read_text())
         try:
-            body = generate_preview(path)
+            body = workers.run(generate_preview, path)
             temporary = destination.with_suffix('.tmp')
             temporary.write_bytes(body)
             os.replace(temporary, destination)
@@ -193,70 +466,25 @@ def cached_preview(path, cache):
 
 # ---------- Meshes for the in-browser 3D viewer ----------
 
-MESH_VERSION = 'v1'
+MESH_VERSION = 'v2'
 MESH_FACE_LIMIT = 150_000  # About 7.5 MB as binary STL: quick on a LAN and on phones.
 MESH_FORMATS = ('.stl', '.obj', '.3mf', '.zip')
 
 
-def load_mesh(path):
-    """Load one triangle mesh from an STL/OBJ/3MF file or the first usable model inside a ZIP."""
-    import trimesh
-
-    suffix = path.suffix.lower()
-    if suffix not in MESH_FORMATS:
-        raise ValueError('3D preview supports STL, OBJ, 3MF and model ZIP files.')
-    if suffix in ('.3mf', '.zip'):
-        with zipfile.ZipFile(path) as archive:
-            if sum(i.file_size for i in archive.infolist()) > MAX_MODEL_BYTES:
-                raise ValueError('This file is too large for a 3D preview.')
-            if suffix == '.zip':
-                parts = sorted(
-                    (
-                        i
-                        for i in archive.infolist()
-                        if Path(i.filename).suffix.lower() in ('.stl', '.obj', '.3mf')
-                        and not i.filename.startswith('__MACOSX/')
-                    ),
-                    key=lambda i: i.filename,
-                )
-                for part in parts:
-                    try:
-                        return _as_mesh(
-                            trimesh.load(
-                                io.BytesIO(archive.read(part)),
-                                file_type=Path(part.filename).suffix.lower()[1:],
-                                force='mesh',
-                                process=False,
-                                skip_materials=True,
-                            )
-                        )
-                    except Exception:
-                        continue
-                raise ValueError('No supported model found in this ZIP.')
-    elif path.stat().st_size > MAX_MODEL_BYTES:
-        raise ValueError('This file is too large for a 3D preview.')
-    return _as_mesh(trimesh.load(str(path), file_type=suffix[1:], force='mesh', process=False, skip_materials=True))
-
-
-def _as_mesh(geometry):
-    import numpy as np
-    import trimesh
-
-    if not isinstance(geometry, trimesh.Trimesh) or not len(geometry.faces):
-        raise ValueError('No triangle mesh found in this file.')
-    if not np.isfinite(geometry.vertices).all():
-        raise ValueError('Model contains invalid coordinates.')
-    return geometry
-
-
 def mesh_stl(path):
-    """Binary STL for the viewer, simplified when the model has more than MESH_FACE_LIMIT faces."""
-    geometry = load_mesh(path)
-    if len(geometry.faces) > MESH_FACE_LIMIT:
-        # Weld first: STL vertices are usually disconnected triangles.
-        geometry.merge_vertices()
-        geometry = geometry.simplify_quadric_decimation(face_count=MESH_FACE_LIMIT)
-    return geometry.export(file_type='stl')
+    """Binary STL for the viewer, simplified to at most MESH_FACE_LIMIT triangles."""
+    import numpy as np
+
+    if path.suffix.lower() not in MESH_FORMATS:
+        raise ValueError('3D preview supports STL, OBJ, 3MF and model ZIP files.')
+    vertices, faces = simplified(*load_geometry(path), MESH_FACE_LIMIT)
+    triangles = np.asarray(vertices, dtype=np.float32)[np.asarray(faces)]
+    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+    record = np.dtype([('normal', '<f4', (3,)), ('corners', '<f4', (3, 3)), ('attribute', '<u2')])
+    body = np.zeros(len(triangles), dtype=record)
+    body['normal'], body['corners'] = normals, triangles
+    return b'Forma 3D preview'.ljust(80, b' ') + len(body).to_bytes(4, 'little') + body.tobytes()
 
 
 def cached_mesh(path, cache):
@@ -276,7 +504,7 @@ def cached_mesh(path, cache):
         if error_file.exists():
             raise ValueError(error_file.read_text())
         try:
-            body = mesh_stl(path)
+            body = workers.run(mesh_stl, path)
             temporary = destination.with_suffix('.tmp')
             temporary.write_bytes(body)
             os.replace(temporary, destination)

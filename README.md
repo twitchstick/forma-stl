@@ -108,6 +108,12 @@ Pairing codes expire after ten minutes and work once. Batches accept up to 500 d
 
 This uses MakerWorld's internal read/download interfaces, which can change. Signed-in private-collection access and Safari site-policy behavior must be validated in the user's signed-in browser. The importer reports site verification/authentication errors and does not bypass them. It does not ask for or change your MakerWorld password, likes, saves or collections. See [companion details and permissions](companion/README.md).
 
+## Memory
+
+Thumbnails, 3D previews, measurements and slicer copies load whole model files, which can need far more memory than the file size. Forma does this work in a separate, short-lived process, one file at a time, and the memory is returned to the system when it finishes. Each job may use up to `FORMA_WORKER_MEMORY_MB` (default 2048). A file that needs more is shown as too large to preview; the server keeps running. Large binary STL and 3MF files are read with streaming loaders, so a 130 MB STL or a 3MF with 2.6 million triangles stays under 1 GB.
+
+The Unraid template also caps the whole container with `--memory=3g` in Extra Parameters, so Forma can never use all of the server's memory. Keep the cap at least 1 GB above `FORMA_WORKER_MEMORY_MB`. Run `docker stats forma` to see current use. If your server ever stops responding, turn on **Settings → Syslog Server → Mirror syslog to flash** so the next crash leaves a log; look for `Out of memory` lines.
+
 ## Backups and recovery
 
 In **Library settings**, download a full backup. It contains a consistent SQLite snapshot and all uploaded files. Existing read-only share files remain on the share and must be backed up separately. A JSON export contains catalog metadata only.
