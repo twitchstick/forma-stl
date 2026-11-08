@@ -1,0 +1,7 @@
+# Served as javascript: bookmark URLs; extra whitespace makes the link much longer.
+static/makerworld-bookmarklet.js
+static/website-bookmarklet.js
+static/*.html
+static/*.css
+companion/*.html
+companion/*.css

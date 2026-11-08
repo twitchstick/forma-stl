@@ -1,6 +1,6 @@
 """Forma: a single-user, self-hosted print library."""
+
 import hashlib
-import hmac
 import http.client
 import ipaddress
 import json
@@ -70,9 +70,11 @@ def fetch_public(url, limit=3_000_000):
             target = p.path or '/'
             if p.query:
                 target += '?' + p.query
-            conn.request('GET', target, headers={'User-Agent':'Forma/1.0 personal-model-catalog','Accept-Encoding':'identity'})
+            conn.request(
+                'GET', target, headers={'User-Agent': 'Forma/1.0 personal-model-catalog', 'Accept-Encoding': 'identity'}
+            )
             r = conn.getresponse()
-            if r.status in (301,302,303,307,308):
+            if r.status in (301, 302, 303, 307, 308):
                 location = r.getheader('Location')
                 if not location:
                     raise ValueError('The page returned an invalid redirect.')
@@ -119,7 +121,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     uploads.mkdir(parents=True, exist_ok=True)
     db_path = data / 'forma.sqlite3'
     app.config.update(MAX_CONTENT_LENGTH=512 * 1024 * 1024)
-    app.config['FORMA_LIBRARY_ROOT']=str(library)
+    app.config['FORMA_LIBRARY_ROOT'] = str(library)
 
     @contextmanager
     def db():
@@ -150,47 +152,55 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         );
         ''')
         model_columns = {r[1] for r in c.execute('PRAGMA table_info(models)')}
-        for name in ('license','license_url','attribution'):
-            if name not in model_columns:c.execute('ALTER TABLE models ADD COLUMN '+name+" TEXT NOT NULL DEFAULT ''")
+        for name in ('license', 'license_url', 'attribution'):
+            if name not in model_columns:
+                c.execute('ALTER TABLE models ADD COLUMN ' + name + " TEXT NOT NULL DEFAULT ''")
         columns = {r[1] for r in c.execute('PRAGMA table_info(files)')}
-        for name in ('mtime_ns','hash_mtime_ns','hash_size'):
+        for name in ('mtime_ns', 'hash_mtime_ns', 'hash_size'):
             if name not in columns:
-                c.execute('ALTER TABLE files ADD COLUMN '+name+' INTEGER NOT NULL DEFAULT 0')
+                c.execute('ALTER TABLE files ADD COLUMN ' + name + ' INTEGER NOT NULL DEFAULT 0')
         for row in c.execute('SELECT id,path,size FROM files WHERE mtime_ns=0').fetchall():
             try:
                 path = Path(row['path']).resolve()
                 if not (path.is_relative_to(library) or path.is_relative_to(uploads)):
                     continue
                 stat = path.stat()
-                if stat.st_size==row['size']:
-                    c.execute('UPDATE files SET mtime_ns=? WHERE id=?',(stat.st_mtime_ns,row['id']))
+                if stat.st_size == row['size']:
+                    c.execute('UPDATE files SET mtime_ns=? WHERE id=?', (stat.st_mtime_ns, row['id']))
             except OSError:
                 pass
 
-    account=Account(app,db,now)
-    app.extensions['account']=account
+    account = Account(app, db, now)
+    app.extensions['account'] = account
 
     @app.before_request
     def protect():
         if request.path.startswith('/api/companion/'):
             app.extensions['makerworld_bridge'].authorized_bridge_request()
-            if request.method=='OPTIONS':
-                return ('',204)
+            if request.method == 'OPTIONS':
+                return ('', 204)
             return
         # A short-lived capability grants read-only access to one selected model file.
         # The download handler validates its token, expiry, path, and file fingerprint.
-        if request.endpoint=='slicer_download' and request.method in ('GET','HEAD'):return
-        # Docker Manager downloads this non-sensitive logo without browser auth.
-        if request.path == '/static/app-icon.png' and request.method in ('GET','HEAD'):
+        if request.endpoint == 'slicer_download' and request.method in ('GET', 'HEAD'):
             return
-        if request.path=='/health' and request.method in ('GET','HEAD'):return
-        public_read=request.method in ('GET','HEAD') and request.path in ('/login','/static/login.js','/static/login.css')
-        public_auth=request.path in ('/api/auth/login','/api/auth/status')
-        if not public_read and request.path!='/api/auth/login':
-            authenticated=account.authenticate()
+        # Docker Manager downloads this non-sensitive logo without browser auth.
+        if request.path == '/static/app-icon.png' and request.method in ('GET', 'HEAD'):
+            return
+        if request.path == '/health' and request.method in ('GET', 'HEAD'):
+            return
+        public_read = request.method in ('GET', 'HEAD') and request.path in (
+            '/login',
+            '/static/login.js',
+            '/static/login.css',
+        )
+        public_auth = request.path in ('/api/auth/login', '/api/auth/status')
+        if not public_read and request.path != '/api/auth/login':
+            authenticated = account.authenticate()
             if not authenticated and not public_auth:
-                if request.path=='/':return send_from_directory(app.static_folder,'login.html'),401
-                return jsonify(error='Sign in to Forma.',login_required=True),401
+                if request.path == '/':
+                    return send_from_directory(app.static_folder, 'login.html'), 401
+                return jsonify(error='Sign in to Forma.', login_required=True), 401
         if request.method in ('POST', 'PATCH', 'DELETE'):
             origin = request.headers.get('Origin')
             if origin and urlsplit(origin).netloc != request.host:
@@ -200,20 +210,24 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
 
     @app.after_request
     def headers(response):
-        response=account.cookies(response)
+        response = account.cookies(response)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+        response.headers['Content-Security-Policy'] = (
+            "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+        )
         if request.path.startswith('/api'):
             response.headers['Cache-Control'] = 'no-store'
-        origin=request.headers.get('Origin','')
-        if request.path.startswith('/api/companion/') and origin.startswith(('chrome-extension://','moz-extension://')):
-            response.headers['Access-Control-Allow-Origin']=origin
-            response.headers['Vary']='Origin'
-            response.headers['Access-Control-Allow-Methods']='GET, POST, OPTIONS'
-            response.headers['Access-Control-Allow-Headers']='Authorization, Content-Type'
-            response.headers['Access-Control-Max-Age']='300'
+        origin = request.headers.get('Origin', '')
+        if request.path.startswith('/api/companion/') and origin.startswith(
+            ('chrome-extension://', 'moz-extension://')
+        ):
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Vary'] = 'Origin'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+            response.headers['Access-Control-Max-Age'] = '300'
         return response
 
     @app.errorhandler(Exception)
@@ -233,8 +247,18 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         result['tags'] = json.loads(result['tags'])
         result['favorite'] = bool(result['favorite'])
         result['files'] = [dict(x) for x in c.execute('SELECT id,name,size,kind FROM files WHERE model_id=?', (id,))]
-        result['collections'] = list(dict.fromkeys(([result['collection']] if result['collection'] else [])+[r[0] for r in c.execute('SELECT name FROM makerworld_memberships WHERE model_id=? ORDER BY name',(id,))]))
-        source=c.execute("SELECT remote_id,profile_id FROM makerworld_sources WHERE model_id=? AND remote_id NOT LIKE '%:%'",(id,)).fetchone()
+        result['collections'] = list(
+            dict.fromkeys(
+                ([result['collection']] if result['collection'] else [])
+                + [
+                    r[0]
+                    for r in c.execute('SELECT name FROM makerworld_memberships WHERE model_id=? ORDER BY name', (id,))
+                ]
+            )
+        )
+        source = c.execute(
+            "SELECT remote_id,profile_id FROM makerworld_sources WHERE model_id=? AND remote_id NOT LIKE '%:%'", (id,)
+        ).fetchone()
         result['makerworld'] = dict(source) if source else None
         return result
 
@@ -252,11 +276,31 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         source = str(payload.get('source_url', '')).strip()[:3000]
         if source and (urlsplit(source).scheme not in ('http', 'https') or not urlsplit(source).hostname):
             raise ValueError('Source must be an http or https URL.')
-        license_url = str(payload.get('license_url','')).strip()
-        if license_url and not web_url(license_url):raise ValueError('Use a public http or https license URL.')
+        license_url = str(payload.get('license_url', '')).strip()
+        if license_url and not web_url(license_url):
+            raise ValueError('Use a public http or https license URL.')
         id = str(uuid.uuid4())
-        c.execute('INSERT INTO models (id,title,creator,source_url,description,tags,collection,status,favorite,created_at,updated_at,import_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', (id,title,str(payload.get('creator',''))[:300],source,str(payload.get('description',''))[:30000],json.dumps(tags),str(payload.get('collection',''))[:100],status,int(bool(payload.get('favorite',False))),now(),now(),import_key))
-        c.execute('UPDATE models SET license=?,license_url=?,attribution=? WHERE id=?',(str(payload.get('license',''))[:500],license_url,str(payload.get('attribution',''))[:2000],id))
+        c.execute(
+            'INSERT INTO models (id,title,creator,source_url,description,tags,collection,status,favorite,created_at,updated_at,import_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+            (
+                id,
+                title,
+                str(payload.get('creator', ''))[:300],
+                source,
+                str(payload.get('description', ''))[:30000],
+                json.dumps(tags),
+                str(payload.get('collection', ''))[:100],
+                status,
+                int(bool(payload.get('favorite', False))),
+                now(),
+                now(),
+                import_key,
+            ),
+        )
+        c.execute(
+            'UPDATE models SET license=?,license_url=?,attribution=? WHERE id=?',
+            (str(payload.get('license', ''))[:500], license_url, str(payload.get('attribution', ''))[:2000], id),
+        )
         return id
 
     @app.get('/')
@@ -282,87 +326,151 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             if existing:
                 return jsonify(error='This source is already in your library.', existing_id=existing[0]), 409
             id = insert_model(c, payload)
-            return jsonify(model(c,id)), 201
+            return jsonify(model(c, id)), 201
 
     @app.post('/api/models/bulk')
     def bulk_update():
         payload = request.get_json()
         ids = payload.get('ids')
-        changes = payload.get('changes',{})
-        allowed = {'tags_add','tags_remove','collection','status','favorite'}
-        if not isinstance(ids,list) or not ids or len(ids)>1000 or not all(isinstance(id,str) for id in ids):
+        changes = payload.get('changes', {})
+        allowed = {'tags_add', 'tags_remove', 'collection', 'status', 'favorite'}
+        if not isinstance(ids, list) or not ids or len(ids) > 1000 or not all(isinstance(id, str) for id in ids):
             raise ValueError('Select between 1 and 1000 models.')
-        if not isinstance(changes,dict) or not changes or not set(changes)<=allowed:
+        if not isinstance(changes, dict) or not changes or not set(changes) <= allowed:
             raise ValueError('Choose tags, a collection, status or a favorite state to update.')
-        for name in ('tags_add','tags_remove'):
-            tags = changes.get(name,[])
-            if not isinstance(tags,list) or len(tags)>100 or not all(isinstance(t,str) and len(t)<=80 for t in tags):
+        for name in ('tags_add', 'tags_remove'):
+            tags = changes.get(name, [])
+            if (
+                not isinstance(tags, list)
+                or len(tags) > 100
+                or not all(isinstance(t, str) and len(t) <= 80 for t in tags)
+            ):
                 raise ValueError('Use up to 100 tags with at most 80 characters each.')
-        if 'collection' in changes and (not isinstance(changes['collection'],str) or len(changes['collection'])>100):
+        if 'collection' in changes and (not isinstance(changes['collection'], str) or len(changes['collection']) > 100):
             raise ValueError('Collection names must be at most 100 characters.')
-        if 'status' in changes and changes['status'] not in ('Saved','To print','Printing','Printed'):
+        if 'status' in changes and changes['status'] not in ('Saved', 'To print', 'Printing', 'Printed'):
             raise ValueError('Invalid print status.')
-        if 'favorite' in changes and not isinstance(changes['favorite'],bool):
+        if 'favorite' in changes and not isinstance(changes['favorite'], bool):
             raise ValueError('Favorite must be true or false.')
         with db() as c:
             for id in set(ids):
-                old = model(c,id)
-                tags = list(dict.fromkeys(old['tags']+[t.strip() for t in changes.get('tags_add',[]) if t.strip()]))
-                remove = {t.strip() for t in changes.get('tags_remove',[])}
+                old = model(c, id)
+                tags = list(dict.fromkeys(old['tags'] + [t.strip() for t in changes.get('tags_add', []) if t.strip()]))
+                remove = {t.strip() for t in changes.get('tags_remove', [])}
                 tags = [t for t in tags if t not in remove]
-                if len(tags)>100:
+                if len(tags) > 100:
                     raise ValueError('A model cannot have more than 100 tags.')
-                if tags!=old['tags']:c.execute("INSERT OR IGNORE INTO source_locks VALUES (?,'tags')",(id,))
-                c.execute('UPDATE models SET tags=?,collection=?,status=?,favorite=?,updated_at=? WHERE id=?',
-                          (json.dumps(tags),changes.get('collection',old['collection']).strip(),changes.get('status',old['status']),int(changes.get('favorite',old['favorite'])),now(),id))
+                if tags != old['tags']:
+                    c.execute("INSERT OR IGNORE INTO source_locks VALUES (?,'tags')", (id,))
+                c.execute(
+                    'UPDATE models SET tags=?,collection=?,status=?,favorite=?,updated_at=? WHERE id=?',
+                    (
+                        json.dumps(tags),
+                        changes.get('collection', old['collection']).strip(),
+                        changes.get('status', old['status']),
+                        int(changes.get('favorite', old['favorite'])),
+                        now(),
+                        id,
+                    ),
+                )
         return jsonify(updated=len(set(ids)))
 
     @app.patch('/api/models/<id>')
     def update_model(id):
         payload = request.get_json()
         with db() as c:
-            old = model(c,id)
-            allowed = {'title','creator','source_url','description','tags','collection','status','favorite','license','license_url','attribution'}
-            merged = {**old, **{k:v for k,v in payload.items() if k in allowed}}
+            old = model(c, id)
+            allowed = {
+                'title',
+                'creator',
+                'source_url',
+                'description',
+                'tags',
+                'collection',
+                'status',
+                'favorite',
+                'license',
+                'license_url',
+                'attribution',
+            }
+            merged = {**old, **{k: v for k, v in payload.items() if k in allowed}}
             # Validate with the same rules without replacing the record or its files.
             temp_id = insert_model(c, merged)
             clean = c.execute('SELECT * FROM models WHERE id=?', (temp_id,)).fetchone()
-            columns = ['title','creator','source_url','description','tags','collection','status','favorite','license','license_url','attribution']
-            app.extensions['source_imports'].mark_edits(c,id,old,clean)
-            c.execute('UPDATE models SET '+','.join(k+'=?' for k in columns)+',updated_at=? WHERE id=?', tuple(clean[k] for k in columns)+(now(),id))
-            c.execute('DELETE FROM models WHERE id=?',(temp_id,))
+            columns = [
+                'title',
+                'creator',
+                'source_url',
+                'description',
+                'tags',
+                'collection',
+                'status',
+                'favorite',
+                'license',
+                'license_url',
+                'attribution',
+            ]
+            app.extensions['source_imports'].mark_edits(c, id, old, clean)
+            c.execute(
+                'UPDATE models SET ' + ','.join(k + '=?' for k in columns) + ',updated_at=? WHERE id=?',
+                tuple(clean[k] for k in columns) + (now(), id),
+            )
+            c.execute('DELETE FROM models WHERE id=?', (temp_id,))
             if 'cover_id' in payload:
-                cover = c.execute('SELECT id FROM files WHERE id=? AND model_id=? AND kind=?',(payload['cover_id'],id,'image')).fetchone()
+                cover = c.execute(
+                    'SELECT id FROM files WHERE id=? AND model_id=? AND kind=?', (payload['cover_id'], id, 'image')
+                ).fetchone()
                 if not cover:
                     raise ValueError('Cover must be an attached image.')
-                c.execute('UPDATE models SET cover_id=? WHERE id=?',(cover[0],id))
-            return jsonify(model(c,id))
+                c.execute('UPDATE models SET cover_id=? WHERE id=?', (cover[0], id))
+            return jsonify(model(c, id))
 
     @app.delete('/api/models/<id>')
     def delete_model(id):
         with db() as c:
-            model(c,id)
-            c.execute('DELETE FROM models WHERE id=?',(id,))
+            model(c, id)
+            c.execute('DELETE FROM models WHERE id=?', (id,))
         # Files in the read-only library are never touched.
-        shutil.rmtree(uploads/id, ignore_errors=True)
+        shutil.rmtree(uploads / id, ignore_errors=True)
         return jsonify(ok=True)
 
     def add_file(c, id, name, path, kind, external=False, sha=''):
         fid = str(uuid.uuid4())
         stat = path.stat()
-        c.execute('INSERT INTO files (id,model_id,name,path,size,kind,external,sha256,mtime_ns,hash_mtime_ns,hash_size) VALUES (?,?,?,?,?,?,?,?,?,?,?)',(fid,id,name,str(path),stat.st_size,kind,int(external),sha,stat.st_mtime_ns,stat.st_mtime_ns if sha else 0,stat.st_size if sha else 0))
+        c.execute(
+            'INSERT INTO files (id,model_id,name,path,size,kind,external,sha256,mtime_ns,hash_mtime_ns,hash_size) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            (
+                fid,
+                id,
+                name,
+                str(path),
+                stat.st_size,
+                kind,
+                int(external),
+                sha,
+                stat.st_mtime_ns,
+                stat.st_mtime_ns if sha else 0,
+                stat.st_size if sha else 0,
+            ),
+        )
         if kind == 'image':
-            c.execute("UPDATE models SET cover_id=? WHERE id=? AND cover_id=''",(fid,id))
+            c.execute("UPDATE models SET cover_id=? WHERE id=? AND cover_id=''", (fid, id))
         return fid
 
-    services = LibraryServices(db,library,uploads,MODELS,IMAGES,insert_model,add_file,now)
+    services = LibraryServices(db, library, uploads, MODELS, IMAGES, insert_model, add_file, now)
     app.extensions['library_services'] = services
-    app.extensions['source_imports'] = SourceImports(app,db,data,library,model,add_file,lambda *args:fetch_public(*args),now)
-    app.extensions['makerworld_bridge'] = MakerWorldBridge(app,db,data,insert_model,add_file,model,fetch_public,now)
+    app.extensions['source_imports'] = SourceImports(
+        app, db, data, library, model, add_file, lambda *args: fetch_public(*args), now
+    )
+    app.extensions['makerworld_bridge'] = MakerWorldBridge(
+        app, db, data, insert_model, add_file, model, fetch_public, now
+    )
 
-    app.extensions['collection_schedules'] = CollectionSchedules(app,db,app.extensions['makerworld_bridge'],lambda *args:fetch_public(*args),now)
-    register_catalog_tools(app,db,data,library,model,now)
-    register_slicers(app,db,data,library)
+    app.extensions['collection_schedules'] = CollectionSchedules(
+        app, db, app.extensions['makerworld_bridge'], lambda *args: fetch_public(*args), now
+    )
+    register_catalog_tools(app, db, data, library, model, now)
+    register_slicers(app, db, data, library)
 
     @app.get('/api/watch')
     def watch_status():
@@ -383,7 +491,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     @app.post('/api/watch/review')
     def watch_review_apply():
         payload = request.get_json()
-        return jsonify(services.review(payload.get('ids'),payload.get('action')))
+        return jsonify(services.review(payload.get('ids'), payload.get('action')))
 
     @app.get('/api/duplicates')
     def duplicates():
@@ -400,29 +508,33 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             raise ValueError('Choose files to upload.')
         if any(Path(f.filename).suffix.lower() not in MODELS | IMAGES for f in items):
             raise ValueError('Use STL, 3MF, OBJ, STEP, ZIP, JPG, PNG, WebP or GIF files.')
-        folder = uploads/id
+        folder = uploads / id
         with db() as c:
-            model(c,id)
+            model(c, id)
             folder.mkdir(exist_ok=True)
             saved = []
             try:
                 for f in items:
                     name = secure_filename(f.filename) or 'file'
-                    path = folder/(str(uuid.uuid4())+Path(name).suffix.lower())
+                    path = folder / (str(uuid.uuid4()) + Path(name).suffix.lower())
                     saved.append(path)
                     f.save(path)
                     kind = 'image' if path.suffix in IMAGES else 'model'
                     digest = hashlib.sha256()
                     with path.open('rb') as stream:
-                        for chunk in iter(lambda:stream.read(1024*1024),b''):
+                        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
                             digest.update(chunk)
                     sha = digest.hexdigest()
-                    duplicate = c.execute('SELECT id FROM files WHERE model_id=? AND sha256=?',(id,sha)).fetchone() if sha else None
+                    duplicate = (
+                        c.execute('SELECT id FROM files WHERE model_id=? AND sha256=?', (id, sha)).fetchone()
+                        if sha
+                        else None
+                    )
                     if duplicate:
                         path.unlink()
                         continue
-                    add_file(c,id,name,path,kind,sha=sha)
-                return jsonify(model(c,id))
+                    add_file(c, id, name, path, kind, sha=sha)
+                return jsonify(model(c, id))
             except Exception:
                 for p in saved:
                     p.unlink(missing_ok=True)
@@ -431,61 +543,70 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     @app.get('/api/files/<fid>')
     def get_file(fid):
         with db() as c:
-            f = c.execute('SELECT * FROM files WHERE id=?',(fid,)).fetchone()
+            f = c.execute('SELECT * FROM files WHERE id=?', (fid,)).fetchone()
         if not f:
             abort(404)
         path = Path(f['path']).resolve()
         root = library if f['external'] else uploads
         if not path.is_relative_to(root) or not path.is_file():
             abort(404, 'File no longer exists at its original location.')
-        return send_file(path, as_attachment=f['kind'] != 'image' or request.args.get('download') == '1', download_name=f['name'], conditional=True)
+        return send_file(
+            path,
+            as_attachment=f['kind'] != 'image' or request.args.get('download') == '1',
+            download_name=f['name'],
+            conditional=True,
+        )
 
     @app.get('/api/models/<id>/thumbnail')
     def thumbnail(id):
         with db() as c:
             model(c, id)
-            files = [dict(f) for f in c.execute('SELECT * FROM files WHERE model_id=? AND kind=?',(id,'model'))]
-        priority = {'.3mf':0,'.stl':1,'.obj':2,'.zip':3}
-        files.sort(key=lambda f:priority.get(Path(f['name']).suffix.lower(),99))
+            files = [dict(f) for f in c.execute('SELECT * FROM files WHERE model_id=? AND kind=?', (id, 'model'))]
+        priority = {'.3mf': 0, '.stl': 1, '.obj': 2, '.zip': 3}
+        files.sort(key=lambda f: priority.get(Path(f['name']).suffix.lower(), 99))
         for f in files:
             path = Path(f['path']).resolve()
             root = library if f['external'] else uploads
             if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() not in priority:
                 continue
             try:
-                preview = cached_preview(path,data/'thumbnails')
-                return send_file(preview,mimetype='image/png',conditional=True)
+                preview = cached_preview(path, data / 'thumbnails')
+                return send_file(preview, mimetype='image/png', conditional=True)
             except ValueError:
                 continue
         abort(404, 'No preview is available for this model. Add a cover photo using Edit model.')
 
     @app.post('/api/metadata')
     def metadata():
-        url = str(request.get_json().get('url','')).strip()
+        url = str(request.get_json().get('url', '')).strip()
         try:
             body, content_type, final_url = fetch_public(url)
-            if content_type not in ('text/html','application/xhtml+xml'):
+            if content_type not in ('text/html', 'application/xhtml+xml'):
                 raise ValueError('This URL is not an HTML model page.')
-            result=parse_source(body,final_url);result['source_url']=url
+            result = parse_source(body, final_url)
+            result['source_url'] = url
             return jsonify(result)
-        except Exception as exc:
-            return jsonify(error='This site did not share readable metadata. You can still save its link and add a title and photo yourself.', source_url=url), 422
+        except Exception:
+            return jsonify(
+                error='This site did not share readable metadata. You can still save its link and add a title and photo yourself.',
+                source_url=url,
+            ), 422
 
     @app.post('/api/models/<id>/remote-image')
     def remote_image(id):
-        image_url = request.get_json().get('url','')
-        body, mime, _ = fetch_public(image_url,12_000_000)
-        exts = {'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp','image/gif':'.gif'}
+        image_url = request.get_json().get('url', '')
+        body, mime, _ = fetch_public(image_url, 12_000_000)
+        exts = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif'}
         if mime not in exts:
             raise ValueError('This URL did not return a supported image.')
         with db() as c:
-            model(c,id)
-            folder = uploads/id
+            model(c, id)
+            folder = uploads / id
             folder.mkdir(exist_ok=True)
-            path = folder/(str(uuid.uuid4())+exts[mime])
+            path = folder / (str(uuid.uuid4()) + exts[mime])
             path.write_bytes(body)
-            add_file(c,id,'source-photo'+exts[mime],path,'image')
-            return jsonify(model(c,id))
+            add_file(c, id, 'source-photo' + exts[mime], path, 'image')
+            return jsonify(model(c, id))
 
     def scan():
         if not library.is_dir():
@@ -496,37 +617,48 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
                 continue
             # Root files are individual models; nested files are grouped by their containing folder.
             key = str(p.parent.relative_to(library)) if p.parent != library else p.stem
-            groups.setdefault(key,[]).append(p)
+            groups.setdefault(key, []).append(p)
         with db() as c:
             existing = {r[0] for r in c.execute('SELECT import_key FROM models WHERE import_key IS NOT NULL')}
-        return [(k,ps) for k,ps in groups.items() if any(p.suffix.lower() in MODELS for p in ps) and 'folder:'+k not in existing]
+        return [
+            (k, ps)
+            for k, ps in groups.items()
+            if any(p.suffix.lower() in MODELS for p in ps) and 'folder:' + k not in existing
+        ]
 
     @app.get('/api/scan')
     def preview_scan():
         groups = scan()
-        return jsonify(groups=[{'key':k,'title':Path(k).name.replace('_',' ').replace('-',' '),'files':len(ps)} for k,ps in groups])
+        return jsonify(
+            groups=[
+                {'key': k, 'title': Path(k).name.replace('_', ' ').replace('-', ' '), 'files': len(ps)}
+                for k, ps in groups
+            ]
+        )
 
     @app.post('/api/scan')
     def import_scan():
-        selected = request.get_json().get('keys',[])
-        if not isinstance(selected,list):
+        selected = request.get_json().get('keys', [])
+        if not isinstance(selected, list):
             raise ValueError('Choose folders to import.')
         count = 0
         with db() as c:
-            for key,paths in scan():
+            for key, paths in scan():
                 if key not in selected:
                     continue
-                id = insert_model(c,{'title':Path(key).name.replace('_',' ').replace('-',' '),'tags':[]},'folder:'+key)
+                id = insert_model(
+                    c, {'title': Path(key).name.replace('_', ' ').replace('-', ' '), 'tags': []}, 'folder:' + key
+                )
                 for p in paths:
-                    add_file(c,id,p.name,p,'image' if p.suffix.lower() in IMAGES else 'model',external=True)
+                    add_file(c, id, p.name, p, 'image' if p.suffix.lower() in IMAGES else 'model', external=True)
                 count += 1
         return jsonify(imported=count)
 
     @app.get('/api/export')
     def export():
         with db() as c:
-            records = [model(c,r[0]) for r in c.execute('SELECT id FROM models')]
-        response = jsonify(format='forma-catalog-v1',exported_at=now(),models=records)
+            records = [model(c, r[0]) for r in c.execute('SELECT id FROM models')]
+        response = jsonify(format='forma-catalog-v1', exported_at=now(), models=records)
         response.headers['Content-Disposition'] = 'attachment; filename="forma-catalog.json"'
         return response
 
@@ -536,17 +668,17 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         archive = tempfile.TemporaryFile()
         try:
             with tempfile.TemporaryDirectory() as temp:
-                snapshot = Path(temp)/'forma.sqlite3'
+                snapshot = Path(temp) / 'forma.sqlite3'
                 with db() as source, sqlite3.connect(snapshot) as target:
                     source.backup(target)
-                with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as z:
-                    z.write(snapshot,'forma.sqlite3')
+                with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+                    z.write(snapshot, 'forma.sqlite3')
                     for p in uploads.rglob('*'):
                         if p.is_file():
-                            z.write(p,str(p.relative_to(data)))
+                            z.write(p, str(p.relative_to(data)))
             archive.seek(0)
             # The WSGI file wrapper closes and removes the temporary archive.
-            return send_file(archive,as_attachment=True,download_name='forma-backup.zip',mimetype='application/zip')
+            return send_file(archive, as_attachment=True, download_name='forma-backup.zip', mimetype='application/zip')
         except Exception:
             archive.close()
             raise
@@ -565,11 +697,19 @@ def require_password(app):
     raise SystemExit(
         'Forma will not start without a password. Set FORMA_PASSWORD on the container '
         '(it seeds the owner account on first start). To run without sign-in on a fully '
-        'trusted network anyway, set FORMA_ALLOW_NO_PASSWORD=1.')
+        'trusted network anyway, set FORMA_ALLOW_NO_PASSWORD=1.'
+    )
 
 
 if __name__ == '__main__':
     from waitress import serve
+
     forma = create_app(start_watcher=True)
     require_password(forma)
-    serve(forma,host=os.environ.get('HOST','0.0.0.0'),port=int(os.environ.get('PORT','8080')),threads=6,max_request_body_size=512*1024*1024)
+    serve(
+        forma,
+        host=os.environ.get('HOST', '0.0.0.0'),
+        port=int(os.environ.get('PORT', '8080')),
+        threads=6,
+        max_request_body_size=512 * 1024 * 1024,
+    )

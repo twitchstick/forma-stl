@@ -1,1 +1,1 @@
-chrome.action.onClicked.addListener(()=>chrome.tabs.create({url:chrome.runtime.getURL('importer.html')}));
+chrome.action.onClicked.addListener(() => chrome.tabs.create({ url: chrome.runtime.getURL('importer.html') }));

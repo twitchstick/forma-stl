@@ -1,12 +1,80 @@
-const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{JSDOM}=require('jsdom');
-const root=path.resolve(__dirname,'..'),dom=new JSDOM(fs.readFileSync(path.join(root,'static/index.html'),'utf8'),{url:'http://forma.test',runScripts:'outside-only'}),w=dom.window,$=s=>w.document.querySelector(s);
-w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;};
-let profile={username:'owner',display_name:'<Owner>',authentication_enabled:true,avatar_url:''},calls=[];
-w.api=async(url,opt={})=>{calls.push([url,opt]);if(url==='/api/account/sessions')return {sessions:[{device:'Safari <Mac>',last_seen:'2026-11-04',current:true}]};if(url==='/api/account'&&opt.method==='PATCH')profile={...profile,...JSON.parse(opt.body)};if(url==='/api/account/avatar')profile.avatar_url=opt.method==='DELETE'?'':'/api/account/avatar?v=1';return profile;};
-w.$=$;w.escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));w.eval(fs.readFileSync(path.join(root,'static/account.js'),'utf8'));
-const settle=async()=>{for(let n=0;n<4;n++)await new Promise(r=>setImmediate(r));};const submit=form=>form.dispatchEvent(new w.SubmitEvent('submit',{cancelable:true,submitter:form.querySelector('button[type=submit]')}));
-(async()=>{await settle();$('#account-button').click();await settle();assert.equal($('#account-dialog').open,true);assert.equal($('#account-profile-form').elements.display_name.value,'<Owner>');assert.equal($('.workspace>div').querySelector('Owner'),null);assert.match($('#account-sessions').textContent,/Safari <Mac>.*This browser/);
- const form=$('#account-password-form');form.elements.current_password.value='fixture-current';form.elements.new_password.value='fixture-new-password';form.elements.confirm_password.value='mismatch';submit(form);await settle();assert.match($('#account-password-message').textContent,/do not match/);assert.equal(calls.filter(([url])=>url==='/api/account/password').length,0);
- form.elements.confirm_password.value='fixture-new-password';submit(form);await settle();assert.equal(calls.filter(([url])=>url==='/api/account/password').length,1);assert.equal(form.elements.current_password.value,'');assert.equal(form.elements.new_password.value,'');assert.match($('#account-password-message').textContent,/Password updated/);
- const p=$('#account-profile-form');p.elements.display_name.value='Workshop';p.elements.current_password.value='fixture-current';submit(p);await settle();assert.equal(p.elements.current_password.value,'');assert.match($('.workspace>div').textContent,/Workshop/);$('#account-logout-others').click();await settle();assert.match($('#account-status').textContent,/Other browsers signed out/);
- console.log('PASS: account entry points, escaped profile/session names, password mismatch, successful reset of secret fields, profile save and browser revocation.');dom.window.close();})().catch(e=>{console.error(e);dom.window.close();process.exitCode=1;});
+const fs = require('node:fs'),
+  path = require('node:path'),
+  assert = require('node:assert/strict'),
+  { JSDOM } = require('jsdom');
+const root = path.resolve(__dirname, '..'),
+  dom = new JSDOM(fs.readFileSync(path.join(root, 'static/index.html'), 'utf8'), {
+    url: 'http://forma.test',
+    runScripts: 'outside-only',
+  }),
+  w = dom.window,
+  $ = (s) => w.document.querySelector(s);
+w.HTMLDialogElement.prototype.showModal = function () {
+  this.open = true;
+};
+w.HTMLDialogElement.prototype.close = function () {
+  this.open = false;
+};
+let profile = { username: 'owner', display_name: '<Owner>', authentication_enabled: true, avatar_url: '' },
+  calls = [];
+w.api = async (url, opt = {}) => {
+  calls.push([url, opt]);
+  if (url === '/api/account/sessions')
+    return { sessions: [{ device: 'Safari <Mac>', last_seen: '2026-11-04', current: true }] };
+  if (url === '/api/account' && opt.method === 'PATCH') profile = { ...profile, ...JSON.parse(opt.body) };
+  if (url === '/api/account/avatar') profile.avatar_url = opt.method === 'DELETE' ? '' : '/api/account/avatar?v=1';
+  return profile;
+};
+w.$ = $;
+w.escapeHTML = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+w.eval(fs.readFileSync(path.join(root, 'static/account.js'), 'utf8'));
+const settle = async () => {
+  for (let n = 0; n < 4; n++) await new Promise((r) => setImmediate(r));
+};
+const submit = (form) =>
+  form.dispatchEvent(
+    new w.SubmitEvent('submit', { cancelable: true, submitter: form.querySelector('button[type=submit]') })
+  );
+(async () => {
+  await settle();
+  $('#account-button').click();
+  await settle();
+  assert.equal($('#account-dialog').open, true);
+  assert.equal($('#account-profile-form').elements.display_name.value, '<Owner>');
+  assert.equal($('.workspace>div').querySelector('Owner'), null);
+  assert.match($('#account-sessions').textContent, /Safari <Mac>.*This browser/);
+  const form = $('#account-password-form');
+  form.elements.current_password.value = 'fixture-current';
+  form.elements.new_password.value = 'fixture-new-password';
+  form.elements.confirm_password.value = 'mismatch';
+  submit(form);
+  await settle();
+  assert.match($('#account-password-message').textContent, /do not match/);
+  assert.equal(calls.filter(([url]) => url === '/api/account/password').length, 0);
+  form.elements.confirm_password.value = 'fixture-new-password';
+  submit(form);
+  await settle();
+  assert.equal(calls.filter(([url]) => url === '/api/account/password').length, 1);
+  assert.equal(form.elements.current_password.value, '');
+  assert.equal(form.elements.new_password.value, '');
+  assert.match($('#account-password-message').textContent, /Password updated/);
+  const p = $('#account-profile-form');
+  p.elements.display_name.value = 'Workshop';
+  p.elements.current_password.value = 'fixture-current';
+  submit(p);
+  await settle();
+  assert.equal(p.elements.current_password.value, '');
+  assert.match($('.workspace>div').textContent, /Workshop/);
+  $('#account-logout-others').click();
+  await settle();
+  assert.match($('#account-status').textContent, /Other browsers signed out/);
+  console.log(
+    'PASS: account entry points, escaped profile/session names, password mismatch, successful reset of secret fields, profile save and browser revocation.'
+  );
+  dom.window.close();
+})().catch((e) => {
+  console.error(e);
+  dom.window.close();
+  process.exitCode = 1;
+});
