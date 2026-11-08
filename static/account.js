@@ -19,12 +19,6 @@ function paintAccount(profile) {
   $('#about-button').title = profile.display_name || profile.username;
   $('#account-photo-preview').innerHTML = picture;
   $('#account-remove-photo').disabled = !profile.avatar_url;
-  const workspace = $('.workspace>div');
-  if (workspace)
-    workspace.innerHTML =
-      escapeHTML(profile.display_name || 'Personal workspace') + '<small>Your ideas, collected.</small>';
-  const icon = $('.workspace-icon');
-  if (icon) icon.innerHTML = initials;
 }
 async function loadAccountSessions() {
   const result = await api('/api/account/sessions');
@@ -156,7 +150,7 @@ const accountSettings = document.createElement('div');
 accountSettings.className = 'settings-card';
 accountSettings.innerHTML =
   '<h3>Account & profile</h3><p>Change your password, username, display name and profile picture, or manage signed-in browsers.</p><button class="button secondary" id="settings-account-open">Manage account</button>';
-$('#settings').prepend(accountSettings);
+$('#settings .dialog-heading').after(accountSettings);
 $('#settings-account-open').onclick = () => {
   $('#settings').close();
   openAccount();

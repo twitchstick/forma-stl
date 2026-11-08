@@ -194,6 +194,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             '/login',
             '/static/login.js',
             '/static/login.css',
+            '/static/fonts/Geist-Variable.woff2',
         )
         public_auth = request.path in ('/api/auth/login', '/api/auth/status')
         if not public_read and request.path != '/api/auth/login':

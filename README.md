@@ -71,9 +71,9 @@ The SQLite database should live on a local Unraid pool/disk, not a remote SMB/NF
 
 Keep the app on your trusted LAN, VPN, or HTTPS reverse proxy. Use HTTPS for remote access. On first startup, `FORMA_USERNAME` and `FORMA_PASSWORD` seed the owner account. Forma refuses to start without a password. To run without sign-in on a fully trusted network anyway, set `FORMA_ALLOW_NO_PASSWORD=1`. Once saved, the account in `/data/forma.sqlite3` takes precedence over these environment variables; restarting or updating the container does not restore the old password. CSRF checks require same-origin browser requests and the `X-Forma-Request: 1` header for API writes.
 
-## App icon
+## App icon and font
 
-Forma uses the layered cube icon in its sidebar and browser tab. The Unraid container label `net.unraid.docker.icon` and template `Icon` point to the copy of `static/app-icon.png` on GitHub, so they work for any server address. Set `FORMA_ICON_URL` for Compose to use a different icon. This one static logo is readable without signing in so Unraid can cache it; catalog data and other routes still require sign-in when a password is configured.
+Forma uses the layered cube icon in its sidebar and browser tab. The interface typeface is Geist, bundled in `static/fonts` under the SIL Open Font License (`static/fonts/Geist-OFL.txt`), so pages make no requests to outside font services. The Unraid container label `net.unraid.docker.icon` and template `Icon` point to the copy of `static/app-icon.png` on GitHub, so they work for any server address. Set `FORMA_ICON_URL` for Compose to use a different icon. This one static logo is readable without signing in so Unraid can cache it; catalog data and other routes still require sign-in when a password is configured.
 
 ## MakerWorld collections and saved models
 

@@ -42,7 +42,8 @@ const submit = (form) =>
   await settle();
   assert.equal($('#account-dialog').open, true);
   assert.equal($('#account-profile-form').elements.display_name.value, '<Owner>');
-  assert.equal($('.workspace>div').querySelector('Owner'), null);
+  assert.equal($('#about-button').querySelector('Owner'), null);
+  assert.equal($('#about-button').title, '<Owner>');
   assert.match($('#account-sessions').textContent, /Safari <Mac>.*This browser/);
   const form = $('#account-password-form');
   form.elements.current_password.value = 'fixture-current';
@@ -65,7 +66,7 @@ const submit = (form) =>
   submit(p);
   await settle();
   assert.equal(p.elements.current_password.value, '');
-  assert.match($('.workspace>div').textContent, /Workshop/);
+  assert.match($('#about-button').title, /Workshop/);
   $('#account-logout-others').click();
   await settle();
   assert.match($('#account-status').textContent, /Other browsers signed out/);

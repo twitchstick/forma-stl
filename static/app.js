@@ -112,9 +112,6 @@ function render() {
   $('#favorite-count').textContent = favorites;
   $('#queue-count').textContent = queued;
   $('#printed-count').textContent = printed;
-  $('#stat-models').textContent = models.length;
-  $('#stat-printed').textContent = printed;
-  $('#stat-queue').textContent = queued;
   const collections = [...new Set([...models.flatMap(modelCollections), ...draftCollections])].sort();
   $('#collections').innerHTML =
     collections
@@ -134,22 +131,9 @@ function render() {
       .map((s) => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`)
       .join('');
   $('#source-filter').value = previousSource;
-  const names = {
-    all: 'Your model library',
-    favorites: 'Your favorites',
-    queue: 'The print list',
-    printed: 'Brought to life',
-    collection: activeCollection,
-  };
-  $('#page-title').innerHTML = escapeHTML(names[view] || names.all) + '<span>.</span>';
-  const subtitles = {
-    all: 'All those “I should print this” moments, in one place.',
-    favorites: 'The designs you keep coming back to.',
-    queue: 'Good ideas, waiting for their turn on the build plate.',
-    printed: 'From a little inspiration to something you can hold.',
-    collection: 'A little corner of your collection, thoughtfully organized.',
-  };
-  $('#page-subtitle').textContent = subtitles[view];
+  const names = { all: 'Library', favorites: 'Favorites', queue: 'To print', printed: 'Printed' };
+  $('#page-title').textContent = view === 'collection' ? activeCollection : names[view] || names.all;
+  document.title = ($('#page-title').textContent || 'Library') + ' · Forma';
   const base = models.filter(
     (m) =>
       view === 'all' ||
@@ -201,12 +185,13 @@ function render() {
   $('#model-grid').innerHTML = filtered
     .map((m) => {
       const count = m.files.filter((f) => f.kind === 'model').length;
-      return `<article class="model-card ${selectedModels.has(m.id) ? 'is-selected' : ''}">${selectionMode ? `<label class="card-selection"><input type="checkbox" data-select-id="${m.id}" aria-label="Select ${escapeHTML(m.title)}" ${selectedModels.has(m.id) ? 'checked' : ''}></label>` : ''}<button class="card-open" data-open="${m.id}" aria-label="Open ${escapeHTML(m.title)}">${previewMarkup(m, 'card-image')}<div class="card-body"><div class="card-meta"><span class="source-label">${escapeHTML(prettySource(m).toUpperCase())}</span><span class="status-pill ${m.status === 'Printed' ? 'printed' : ''}">${m.status === 'Printed' ? '✓ ' : ''}${escapeHTML(m.status)}</span></div><h3>${escapeHTML(m.title)}</h3><div class="creator">${escapeHTML(m.creator ? 'by ' + m.creator : 'Your personal collection')}</div><div class="card-tags">${m.tags
+      const statusClass = 'status-' + m.status.toLowerCase().replace(/\s+/g, '-');
+      const added = new Date(m.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const tags = m.tags
         .slice(0, 3)
         .map((t) => `<span>${escapeHTML(t)}</span>`)
-        .join(
-          ''
-        )}${m.tags.length > 3 ? `<span>+${m.tags.length - 3}</span>` : ''}</div></div></button><button class="favorite-button ${m.favorite ? 'is-favorite' : ''}" data-favorite="${m.id}" aria-label="${m.favorite ? 'Remove from' : 'Add to'} favorites">${m.favorite ? '♥' : '♡'}</button><div class="card-footer"><span>▱ &nbsp; ${count} file${count === 1 ? '' : 's'}</span><span>${escapeHTML(new Date(m.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</span></div></article>`;
+        .join('');
+      return `<article class="model-card ${selectedModels.has(m.id) ? 'is-selected' : ''}">${selectionMode ? `<label class="card-selection"><input type="checkbox" data-select-id="${m.id}" aria-label="Select ${escapeHTML(m.title)}" ${selectedModels.has(m.id) ? 'checked' : ''}></label>` : ''}<button class="card-open" data-open="${m.id}" aria-label="Open ${escapeHTML(m.title)}">${previewMarkup(m, 'card-image')}<div class="card-body"><div class="card-title-row"><h3>${escapeHTML(m.title)}</h3><span class="status-pill ${statusClass}">${escapeHTML(m.status)}</span></div><div class="creator">${escapeHTML(m.creator || 'Your collection')}<span class="source-label"> · ${escapeHTML(prettySource(m))}</span></div><div class="card-tags">${tags}${m.tags.length > 3 ? `<span>+${m.tags.length - 3}</span>` : ''}</div></div></button><button class="favorite-button ${m.favorite ? 'is-favorite' : ''}" data-favorite="${m.id}" aria-label="${m.favorite ? 'Remove from' : 'Add to'} favorites"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></button><div class="card-footer"><span>${count} file${count === 1 ? '' : 's'}</span><span>${escapeHTML(added)}</span></div></article>`;
     })
     .join('');
   watchPreviewErrors($('#model-grid'));
@@ -546,7 +531,7 @@ document.addEventListener('keydown', (e) => {
 });
 // Appearance is a device preference. Catalog data always stays on the server.
 const themeSelect = $('#theme-choice');
-themeSelect.value = document.documentElement.dataset.themeChoice || 'dark';
+themeSelect.value = document.documentElement.dataset.themeChoice || 'system';
 function applyTheme(choice) {
   const resolved =
     choice === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : choice;
@@ -555,7 +540,7 @@ function applyTheme(choice) {
   try {
     localStorage.setItem('forma-theme', choice);
   } catch {}
-  document.querySelector('meta[name="theme-color"]').content = resolved === 'dark' ? '#101217' : '#f5f6fa';
+  document.querySelector('meta[name="theme-color"]').content = resolved === 'dark' ? '#141311' : '#f7f5f0';
 }
 themeSelect.onchange = () => applyTheme(themeSelect.value);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -805,3 +790,18 @@ $('#settings-duplicates').onclick = () => {
 setInterval(refreshWatchStatus, 30000);
 
 refresh();
+
+// Phone layout: the sidebar becomes a drawer opened from the header.
+function setMenu(open) {
+  document.body.classList.toggle('menu-open', open);
+  $('#sidebar-scrim').hidden = !open;
+  $('#menu-button').setAttribute('aria-expanded', String(open));
+}
+$('#menu-button').onclick = () => setMenu(!document.body.classList.contains('menu-open'));
+$('#sidebar-scrim').onclick = () => setMenu(false);
+$('#sidebar').addEventListener('click', (event) => {
+  if (event.target.closest('button') && !event.target.closest('.collection-label')) setMenu(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && document.body.classList.contains('menu-open')) setMenu(false);
+});
