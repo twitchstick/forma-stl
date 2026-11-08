@@ -23,7 +23,7 @@ class LibraryServices:
                 state TEXT NOT NULL DEFAULT 'pending', detected_at TEXT NOT NULL
               );
             ''')
-            for key,value in [('watch_enabled','true'),('watch_interval','60'),('last_scan',''),('scan_error','')]:
+            for key,value in [('watch_enabled','true'),('watch_interval','900'),('last_scan',''),('scan_error','')]:
                 c.execute('INSERT OR IGNORE INTO library_settings VALUES (?,?)',(key,value))
 
     def settings(self):

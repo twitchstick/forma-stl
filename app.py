@@ -557,6 +557,19 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     return app
 
 
+def require_password(app):
+    # Without a password every catalog, file and settings route is open to anyone
+    # who can reach the port. Refuse to start unless the owner explicitly opts in.
+    if app.extensions['account'].enabled() or os.environ.get('FORMA_ALLOW_NO_PASSWORD') == '1':
+        return
+    raise SystemExit(
+        'Forma will not start without a password. Set FORMA_PASSWORD on the container '
+        '(it seeds the owner account on first start). To run without sign-in on a fully '
+        'trusted network anyway, set FORMA_ALLOW_NO_PASSWORD=1.')
+
+
 if __name__ == '__main__':
     from waitress import serve
-    serve(create_app(start_watcher=True),host=os.environ.get('HOST','0.0.0.0'),port=int(os.environ.get('PORT','8080')),threads=6,max_request_body_size=512*1024*1024)
+    forma = create_app(start_watcher=True)
+    require_password(forma)
+    serve(forma,host=os.environ.get('HOST','0.0.0.0'),port=int(os.environ.get('PORT','8080')),threads=6,max_request_body_size=512*1024*1024)

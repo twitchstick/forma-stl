@@ -13,5 +13,5 @@ COPY companion ./companion
 COPY static ./static
 EXPOSE 8080
 VOLUME ["/data"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD python -c "import os,urllib.request,base64; r=urllib.request.Request('http://127.0.0.1:8080/health'); p=os.environ.get('FORMA_PASSWORD',''); r.add_header('Authorization','Basic '+base64.b64encode((os.environ.get('FORMA_USERNAME','admin')+':'+p).encode()).decode()) if p else None; urllib.request.urlopen(r,timeout=3)"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3)"
 CMD ["python", "app.py"]

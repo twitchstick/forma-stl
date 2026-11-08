@@ -8,7 +8,7 @@ A personal, self-hosted STL library for Unraid with dark, light and system appea
 - Automatic previews for existing and new entries: use embedded 3MF creator photos first, then slicer thumbnails, with software-rendered STL/OBJ/3MF geometry as a fallback. Model ZIPs can supply an embedded photo or a model preview too. Uploaded/source-page cover photos take priority.
 - Search titles, creators, descriptions, collections, and tags.
 - Bulk edit selected models: add/remove tags, assign/clear collections, change print status and favorite state.
-- A read-only folder watcher checks every minute by default and queues new/changed folders in the Import inbox for approval.
+- A read-only folder watcher checks every 15 minutes by default and queues new/changed folders in the Import inbox for approval.
 - Duplicate finder compares SHA-256 content hashes, including files with different names. Results are advisory; nothing is deleted or merged.
 - Filter by source, tags, and print status; favorites and a print queue.
 - Upload STL, 3MF, OBJ, STEP, STP and ZIP files, plus JPG, PNG, WebP and GIF images. ZIP files are stored for download, not extracted.
@@ -71,11 +71,11 @@ docker compose up -d --build
 
 The SQLite database should live on a local Unraid pool/disk, not a remote SMB/NFS mount. The container runs as root by default for simple Unraid volume compatibility. If you set a Docker `--user` or Compose `user`, make the `/data` folder writable by that UID/GID first. There are no `PUID`/`PGID` variables.
 
-Keep the app on your trusted LAN, VPN, or HTTPS reverse proxy. Use HTTPS for remote access. On first startup, `FORMA_USERNAME` and `FORMA_PASSWORD` seed the owner account. A blank initial password leaves sign-in disabled until you set one in Account. Once saved, the account in `/data/forma.sqlite3` takes precedence over these environment variables; restarting or updating the container does not restore the old password. CSRF checks require same-origin browser requests and the `X-Forma-Request: 1` header for API writes.
+Keep the app on your trusted LAN, VPN, or HTTPS reverse proxy. Use HTTPS for remote access. On first startup, `FORMA_USERNAME` and `FORMA_PASSWORD` seed the owner account. Forma refuses to start without a password. To run without sign-in on a fully trusted network anyway, set `FORMA_ALLOW_NO_PASSWORD=1`. Once saved, the account in `/data/forma.sqlite3` takes precedence over these environment variables; restarting or updating the container does not restore the old password. CSRF checks require same-origin browser requests and the `X-Forma-Request: 1` header for API writes.
 
 ## App icon
 
-Forma uses the layered cube icon in its sidebar and browser tab. The Unraid container label `net.unraid.docker.icon` and template `Icon` point to `http://192.168.1.194:8086/static/app-icon.png`. If your server IP or web port changes, update this URL too (or set `FORMA_ICON_URL` for Compose). This one static logo is readable without signing in so Unraid can cache it; catalog data and other routes still require sign-in when a password is configured.
+Forma uses the layered cube icon in its sidebar and browser tab. The Unraid container label `net.unraid.docker.icon` and template `Icon` point to the copy of `static/app-icon.png` on GitHub, so they work for any server address. Set `FORMA_ICON_URL` for Compose to use a different icon. This one static logo is readable without signing in so Unraid can cache it; catalog data and other routes still require sign-in when a password is configured.
 
 ## MakerWorld collections and saved models
 
@@ -114,7 +114,7 @@ In **Library settings**, download a full backup. It contains a consistent SQLite
 
 To restore: stop the container, preserve a copy of its current appdata, extract `forma.sqlite3` and `files/` from the backup into an **empty** appdata directory, then restart with the same `/data` and `/library` mappings. Backups contain absolute container paths; keep these mappings unchanged. Do not mix a restored database with old SQLite `-wal` or `-shm` files. Images and files scanned from your model share remain linked to their original locations. Moving or renaming those original files breaks those links.
 
-The folder watcher is enabled by default and checks every minute, including when the browser is closed. Open **Import inbox** to change the interval (30 seconds to one hour), pause watching, or scan immediately. New folders and changes to linked files wait for approval. Approving a change synchronizes only server-share file references; your titles, tags, notes, collections, print state and uploaded images stay in place. Missing files are flagged and acknowledged without removing catalog entries. Dismissed changes stay dismissed until that folder changes again. Originals are always read-only.
+The folder watcher is enabled by default and checks every 15 minutes, including when the browser is closed. Each check lists every file on the share, so very short intervals can keep Unraid array disks from spinning down. Open **Import inbox** to change the interval (30 seconds to one hour), pause watching, or scan immediately. New folders and changes to linked files wait for approval. Approving a change synchronizes only server-share file references; your titles, tags, notes, collections, print state and uploaded images stay in place. Missing files are flagged and acknowledged without removing catalog entries. Dismissed changes stay dismissed until that folder changes again. Originals are always read-only.
 
 **Find duplicates** runs a background content-hash index when requested and saves hashes for unchanged files. It finds exact file copies, not geometrically similar models or equivalent STL/3MF exports. Changed and unavailable files are excluded from stale matches. File contents are never deleted or altered. Large libraries may take time to hash on their first scan.
 

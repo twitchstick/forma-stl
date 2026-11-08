@@ -8,13 +8,13 @@ services:
       - "8086:8080"
     environment:
       FORMA_USERNAME: "${FORMA_USERNAME:-admin}"
-      FORMA_PASSWORD: "${FORMA_PASSWORD:-}"
+      FORMA_PASSWORD: "${FORMA_PASSWORD:?Set FORMA_PASSWORD in .env}"
     volumes:
       - /mnt/user/appdata/forma:/data
       - /mnt/user/3d-printing:/library:ro
     labels:
       net.unraid.docker.managed: dockerman
-      net.unraid.docker.icon: "${FORMA_ICON_URL:-http://192.168.1.194:8086/static/app-icon.png}"
+      net.unraid.docker.icon: "${FORMA_ICON_URL:-https://raw.githubusercontent.com/twitchstick/forma-stl/main/static/app-icon.png}"
       net.unraid.docker.webui: "http://[IP]:[PORT:8080]/"
     logging:
       driver: json-file

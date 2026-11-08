@@ -29,7 +29,7 @@ jobs:
         run: docker build -t forma:test .
       - name: Check container startup
         run: |
-          docker run -d --name forma-test -p 8085:8080 forma:test
+          docker run -d --name forma-test -p 8085:8080 -e FORMA_PASSWORD=ci-test-password forma:test
           for attempt in $(seq 1 20); do
             if curl --fail http://127.0.0.1:8085/health; then exit 0; fi
             sleep 1

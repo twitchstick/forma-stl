@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from app import create_app, public_url
+from app import create_app, public_url, require_password
 
 
 class LibraryTests(unittest.TestCase):
@@ -145,6 +145,18 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/models').status_code,401)
             with self.client.get('/') as response:self.assertEqual(response.status_code,401)
             self.assertEqual(self.client.get('/static/app.js').status_code,401)
+
+    def test_startup_requires_a_password(self):
+        with patch.dict(os.environ,{'FORMA_PASSWORD':'','FORMA_ALLOW_NO_PASSWORD':''}):
+            with self.assertRaises(SystemExit):
+                require_password(self.app)
+        with patch.dict(os.environ,{'FORMA_PASSWORD':'','FORMA_ALLOW_NO_PASSWORD':'1'}):
+            require_password(self.app)
+        with patch.dict(os.environ,{'FORMA_PASSWORD':'test-password'}):
+            require_password(self.app)
+
+    def test_folder_watch_defaults_to_fifteen_minutes(self):
+        self.assertEqual(self.client.get('/api/watch').json['interval'],900)
 
 
 if __name__ == '__main__':

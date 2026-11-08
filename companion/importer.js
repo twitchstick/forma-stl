@@ -28,7 +28,7 @@ function renderModels(){
 $('#pair').onclick=async()=>{
  try{
    message('');const parsed=new URL($('#forma-url').value);
-   if(!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password||parsed.pathname!=='/'||parsed.search||parsed.hash)throw Error('Enter only the Forma server address, such as http://192.168.1.194:8086.');
+   if(!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password||parsed.pathname!=='/'||parsed.search||parsed.hash)throw Error('Enter only the Forma server address, such as http://your-server:8086.');
    const allowed=await chrome.permissions.request({origins:[parsed.protocol+'//'+parsed.hostname+'/*']});
    if(!allowed)throw Error('Server access was not granted.');
    const response=await fetch(parsed.origin+'/api/companion/connect',{method:'POST',credentials:'omit',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:$('#pair-code').value.trim(),name:navigator.userAgent.includes('Edg/')?'Edge companion':'Chrome companion'})});
