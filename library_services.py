@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -230,6 +231,84 @@ class LibraryServices:
 
         threading.Thread(target=watch, name='forma-folder-watch', daemon=True).start()
 
+    def checked_path(self, f):
+        path = Path(f['path']).resolve()
+        if not path.is_relative_to(self.library if f['external'] else self.uploads):
+            raise ValueError('Outside the model folder.')
+        return path
+
+    @staticmethod
+    def current_hash(f, stat):
+        """The stored fingerprint, if the file has not changed since it was taken."""
+        if f['sha256'] and stat.st_size == f['hash_size'] and stat.st_mtime_ns == f['hash_mtime_ns']:
+            return f['sha256']
+        return ''
+
+    def store_hash(self, f, path):
+        before = path.stat()
+        digest = hashlib.sha256()
+        with path.open('rb') as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                digest.update(chunk)
+        after = path.stat()
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise ValueError('File is still changing.')
+        with self.db() as c:
+            # A watcher review may have updated the row while hashing.
+            c.execute(
+                'UPDATE files SET sha256=?,hash_size=?,hash_mtime_ns=? WHERE id=? AND path=?',
+                (digest.hexdigest(), after.st_size, after.st_mtime_ns, f['id'], f['path']),
+            )
+        return digest.hexdigest()
+
+    def find_file_matches(self, items):
+        """Which models already contain these files? items: [{sha256, size}, ...].
+
+        Files on the share may not have a fingerprint yet, so any model file of
+        exactly the same size is fingerprinted now. Equal sizes are rare, which
+        keeps this quick without needing a full duplicate scan first.
+        """
+        if not isinstance(items, list) or len(items) > 200:
+            raise ValueError('Check up to 200 files at a time.')
+        wanted = {}
+        for item in items:
+            sha, size = (
+                item.get('sha256') if isinstance(item, dict) else None,
+                item.get('size') if isinstance(item, dict) else None,
+            )
+            if not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{64}', sha):
+                raise ValueError('Invalid file fingerprint.')
+            if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+                raise ValueError('Invalid file size.')
+            wanted[sha] = size
+        matches = {sha: [] for sha in wanted}
+        if not wanted:
+            return matches
+        sizes = set(wanted.values())
+        marks = ','.join('?' * len(wanted))
+        size_marks = ','.join('?' * len(sizes))
+        with self.db() as c:
+            rows = [
+                dict(r)
+                for r in c.execute(
+                    'SELECT f.*,m.title FROM files f JOIN models m ON f.model_id=m.id '
+                    f"WHERE f.kind='model' AND (f.sha256 IN ({marks}) OR f.size IN ({size_marks})) ORDER BY m.created_at DESC",
+                    (*wanted, *sizes),
+                )
+            ]
+        for f in rows:
+            try:
+                path = self.checked_path(f)
+                stat = path.stat()
+                sha = self.current_hash(f, stat)
+                if not sha and stat.st_size in sizes:
+                    sha = self.store_hash(f, path)
+            except (OSError, ValueError):
+                continue
+            if sha in matches:
+                matches[sha].append({'model_id': f['model_id'], 'title': f['title'], 'name': f['name']})
+        return matches
+
     def index_duplicates(self):
         if not self.hash_lock.acquire(blocking=False):
             return
@@ -239,24 +318,9 @@ class LibraryServices:
             self.hash_state.update(running=True, processed=0, total=len(files), errors=0)
             for f in files:
                 try:
-                    path = Path(f['path']).resolve()
-                    if not path.is_relative_to(self.library if f['external'] else self.uploads):
-                        raise ValueError('Outside the model folder.')
-                    before = path.stat()
-                    if not f['sha256'] or before.st_size != f['hash_size'] or before.st_mtime_ns != f['hash_mtime_ns']:
-                        digest = hashlib.sha256()
-                        with path.open('rb') as stream:
-                            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-                                digest.update(chunk)
-                        after = path.stat()
-                        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
-                            raise ValueError('File is still changing.')
-                        with self.db() as c:
-                            # A watcher review may have updated the row while hashing.
-                            c.execute(
-                                'UPDATE files SET sha256=?,hash_size=?,hash_mtime_ns=? WHERE id=? AND path=?',
-                                (digest.hexdigest(), after.st_size, after.st_mtime_ns, f['id'], f['path']),
-                            )
+                    path = self.checked_path(f)
+                    if not self.current_hash(f, path.stat()):
+                        self.store_hash(f, path)
                 except (OSError, ValueError):
                     self.hash_state['errors'] += 1
                 self.hash_state['processed'] += 1

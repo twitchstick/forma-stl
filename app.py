@@ -503,6 +503,10 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         payload = request.get_json()
         return jsonify(services.review(payload.get('ids'), payload.get('action')))
 
+    @app.post('/api/files/lookup')
+    def file_lookup():
+        return jsonify(matches=services.find_file_matches(request.get_json().get('files')))
+
     @app.get('/api/duplicates')
     def duplicates():
         return jsonify(services.duplicate_report())
