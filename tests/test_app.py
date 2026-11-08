@@ -183,6 +183,16 @@ class LibraryTests(unittest.TestCase):
         self.client.post('/api/watch/scan', headers=self.headers)
         self.assertEqual(self.client.get('/api/watch/review').json['items'], [])
 
+    def test_edit_validates_without_extra_rows(self):
+        m = self.add(tags=['vase'])
+        bad = self.client.patch('/api/models/' + m['id'], json={'status': 'Lost'}, headers=self.headers)
+        self.assertEqual(bad.status_code, 400)
+        r = self.client.patch(
+            '/api/models/' + m['id'], json={'title': '  Tall vase ', 'favorite': True}, headers=self.headers
+        )
+        self.assertEqual((r.json['title'], r.json['favorite'], r.json['tags']), ('Tall vase', True, ['vase']))
+        self.assertEqual([x['id'] for x in self.client.get('/api/models').json], [m['id']])
+
     def test_startup_requires_a_password(self):
         with patch.dict(os.environ, {'FORMA_PASSWORD': '', 'FORMA_ALLOW_NO_PASSWORD': ''}):
             with self.assertRaises(SystemExit):

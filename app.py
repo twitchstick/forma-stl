@@ -262,7 +262,22 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         result['makerworld'] = dict(source) if source else None
         return result
 
-    def insert_model(c, payload, import_key=None):
+    COLUMNS = (
+        'title',
+        'creator',
+        'source_url',
+        'description',
+        'tags',
+        'collection',
+        'status',
+        'favorite',
+        'license',
+        'license_url',
+        'attribution',
+    )
+
+    def clean_model(payload):
+        """Validate editable model fields and return them as stored in the models table."""
         title = str(payload.get('title', '')).strip()[:300]
         if not title:
             raise ValueError('Give this model a title.')
@@ -279,27 +294,27 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         license_url = str(payload.get('license_url', '')).strip()
         if license_url and not web_url(license_url):
             raise ValueError('Use a public http or https license URL.')
+        return {
+            'title': title,
+            'creator': str(payload.get('creator', ''))[:300],
+            'source_url': source,
+            'description': str(payload.get('description', ''))[:30000],
+            'tags': json.dumps(tags),
+            'collection': str(payload.get('collection', ''))[:100],
+            'status': status,
+            'favorite': int(bool(payload.get('favorite', False))),
+            'license': str(payload.get('license', ''))[:500],
+            'license_url': license_url,
+            'attribution': str(payload.get('attribution', ''))[:2000],
+        }
+
+    def insert_model(c, payload, import_key=None):
+        clean = clean_model(payload)
         id = str(uuid.uuid4())
+        names = ('id', *COLUMNS, 'created_at', 'updated_at', 'import_key')
         c.execute(
-            'INSERT INTO models (id,title,creator,source_url,description,tags,collection,status,favorite,created_at,updated_at,import_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-            (
-                id,
-                title,
-                str(payload.get('creator', ''))[:300],
-                source,
-                str(payload.get('description', ''))[:30000],
-                json.dumps(tags),
-                str(payload.get('collection', ''))[:100],
-                status,
-                int(bool(payload.get('favorite', False))),
-                now(),
-                now(),
-                import_key,
-            ),
-        )
-        c.execute(
-            'UPDATE models SET license=?,license_url=?,attribution=? WHERE id=?',
-            (str(payload.get('license', ''))[:500], license_url, str(payload.get('attribution', ''))[:2000], id),
+            'INSERT INTO models (' + ','.join(names) + ') VALUES (' + ','.join('?' * len(names)) + ')',
+            (id, *(clean[k] for k in COLUMNS), now(), now(), import_key),
         )
         return id
 
@@ -380,42 +395,13 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         payload = request.get_json()
         with db() as c:
             old = model(c, id)
-            allowed = {
-                'title',
-                'creator',
-                'source_url',
-                'description',
-                'tags',
-                'collection',
-                'status',
-                'favorite',
-                'license',
-                'license_url',
-                'attribution',
-            }
-            merged = {**old, **{k: v for k, v in payload.items() if k in allowed}}
-            # Validate with the same rules without replacing the record or its files.
-            temp_id = insert_model(c, merged)
-            clean = c.execute('SELECT * FROM models WHERE id=?', (temp_id,)).fetchone()
-            columns = [
-                'title',
-                'creator',
-                'source_url',
-                'description',
-                'tags',
-                'collection',
-                'status',
-                'favorite',
-                'license',
-                'license_url',
-                'attribution',
-            ]
+            merged = {**old, **{k: v for k, v in payload.items() if k in COLUMNS}}
+            clean = clean_model(merged)
             app.extensions['source_imports'].mark_edits(c, id, old, clean)
             c.execute(
-                'UPDATE models SET ' + ','.join(k + '=?' for k in columns) + ',updated_at=? WHERE id=?',
-                tuple(clean[k] for k in columns) + (now(), id),
+                'UPDATE models SET ' + ','.join(k + '=?' for k in COLUMNS) + ',updated_at=? WHERE id=?',
+                (*(clean[k] for k in COLUMNS), now(), id),
             )
-            c.execute('DELETE FROM models WHERE id=?', (temp_id,))
             if 'cover_id' in payload:
                 cover = c.execute(
                     'SELECT id FROM files WHERE id=? AND model_id=? AND kind=?', (payload['cover_id'], id, 'image')
