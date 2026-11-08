@@ -609,22 +609,12 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             return jsonify(model(c, id))
 
     def scan():
-        if not library.is_dir():
-            raise ValueError('No library folder is mounted. Map your models share to /library first.')
-        groups = {}
-        for p in sorted(library.rglob('*')):
-            if not p.is_file() or not p.resolve().is_relative_to(library) or p.suffix.lower() not in MODELS | IMAGES:
-                continue
-            # Root files are individual models; nested files are grouped by their containing folder.
-            key = str(p.parent.relative_to(library)) if p.parent != library else p.stem
-            groups.setdefault(key, []).append(p)
+        # Same rules as the folder watcher: one model per folder (or per root-level
+        # file stem), symlinks skipped, only folders that contain a model file.
+        groups = services.inventory()
         with db() as c:
             existing = {r[0] for r in c.execute('SELECT import_key FROM models WHERE import_key IS NOT NULL')}
-        return [
-            (k, ps)
-            for k, ps in groups.items()
-            if any(p.suffix.lower() in MODELS for p in ps) and 'folder:' + k not in existing
-        ]
+        return [(k, [Path(f['path']) for f in files]) for k, files in groups.items() if 'folder:' + k not in existing]
 
     @app.get('/api/scan')
     def preview_scan():

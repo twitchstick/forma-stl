@@ -171,6 +171,18 @@ class LibraryTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 401)
             self.assertEqual(self.client.get('/static/app.js').status_code, 401)
 
+    def test_manual_import_matches_folder_watcher(self):
+        folder = self.library / 'Planter'
+        folder.mkdir()
+        (folder / 'planter.stl').write_bytes(b'solid planter')
+        (folder / 'alias.stl').symlink_to(folder / 'planter.stl')
+        groups = self.client.get('/api/scan').json['groups']
+        self.assertEqual([(g['key'], g['files']) for g in groups], [('Planter', 1)])
+        self.client.post('/api/scan', json={'keys': ['Planter']}, headers=self.headers)
+        # A folder imported by hand must not show up as changed in the watcher inbox.
+        self.client.post('/api/watch/scan', headers=self.headers)
+        self.assertEqual(self.client.get('/api/watch/review').json['items'], [])
+
     def test_startup_requires_a_password(self):
         with patch.dict(os.environ, {'FORMA_PASSWORD': '', 'FORMA_ALLOW_NO_PASSWORD': ''}):
             with self.assertRaises(SystemExit):
