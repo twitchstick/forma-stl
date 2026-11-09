@@ -728,6 +728,10 @@ h1 {
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 32px 22px;
 }
+.show-more {
+  display: block;
+  margin: 32px auto 8px;
+}
 .model-card {
   position: relative;
   min-width: 0;
@@ -1339,6 +1343,7 @@ body.viewing-model .view-tabs,
 body.viewing-model .library-toolbar,
 body.viewing-model .filter-row,
 body.viewing-model #model-grid,
+body.viewing-model #show-more,
 body.viewing-model #empty-state,
 body.viewing-model #no-results,
 body.viewing-model #watch-banner,
@@ -1794,6 +1799,8 @@ body.viewing-model #error-banner {
   overflow-wrap: anywhere;
 }
 .review-kind {
+  display: inline-block;
+  white-space: nowrap;
   margin-left: 8px;
   padding: 1px 8px;
   border-radius: 999px;
@@ -2167,8 +2174,8 @@ body.viewing-model #error-banner {
   .favorite-button {
     top: 8px;
     right: 8px;
-    width: 30px;
-    height: 30px;
+    width: 36px;
+    height: 36px;
   }
   .list-mode .card-footer {
     display: none;
@@ -2208,6 +2215,25 @@ body.viewing-model #error-banner {
   }
   #toast {
     left: 50%;
+  }
+
+  /* Phones zoom the whole page when a field smaller than 16px is focused. */
+  input:not([type='checkbox'], [type='radio'], [type='file'], [type='range']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  .search kbd {
+    display: none;
+  }
+  .sidebar .collection-item,
+  .sidebar .nav-item,
+  .nav-group summary {
+    min-height: 44px;
+  }
+  .nav-label button {
+    width: 36px;
+    height: 36px;
   }
 }
 

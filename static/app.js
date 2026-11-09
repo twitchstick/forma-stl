@@ -32,12 +32,64 @@ const prettySource = (m) => sourceName(m).replace(/\.(com|org|net)$/, '');
 const canPreview = (m) => m.files.some((f) => /\.(3mf|stl|obj|zip)$/i.test(f.name));
 function previewMarkup(m, className, detail = false) {
   const url = m.cover_id ? '/api/files/' + m.cover_id : canPreview(m) ? '/api/models/' + m.id + '/thumbnail' : '';
+  // A thumbnail the server has not drawn yet waits its turn; see pumpThumbnails.
+  const source = !detail && !m.cover_id && !loadedThumbnails.has(url) ? `data-thumbnail="${url}"` : `src="${url}"`;
   return url
-    ? `<img class="${className}" ${detail ? 'id="detail-cover"' : ''} data-model-image="${m.id}" data-photo-cover="${m.cover_id ? '1' : '0'}" src="${url}" alt="${escapeHTML(m.title)}" ${detail ? '' : 'loading="lazy"'}>`
+    ? `<img class="${className}" ${detail ? 'id="detail-cover"' : ''} data-model-image="${m.id}" data-photo-cover="${m.cover_id ? '1' : '0'}" ${source} alt="${escapeHTML(m.title)}" ${detail ? '' : 'loading="lazy"'}>`
     : `<div class="${className} image-placeholder" ${detail ? 'id="detail-cover"' : ''}><span>⬡</span><small>No model preview · add a photo</small></div>`;
 }
+// Drawing a new thumbnail can take the server several seconds. Browsers allow six
+// connections per server, so a screenful of new models would leave none for anything
+// else and Forma would appear to hang. Only a few load at once, nearest the screen only.
+const THUMBNAIL_LOADS = 3;
+const loadedThumbnails = new Set();
+const thumbnailQueue = new Set();
+let thumbnailsLoading = 0;
+const thumbnailObserver =
+  'IntersectionObserver' in window
+    ? new IntersectionObserver(
+        (entries) => {
+          for (const { target, isIntersecting } of entries)
+            isIntersecting ? thumbnailQueue.add(target) : thumbnailQueue.delete(target);
+          pumpThumbnails();
+        },
+        { rootMargin: '400px' }
+      )
+    : null;
+function pumpThumbnails() {
+  for (const img of thumbnailQueue) {
+    if (thumbnailsLoading >= THUMBNAIL_LOADS) return;
+    thumbnailQueue.delete(img);
+    thumbnailObserver?.unobserve(img);
+    startThumbnail(img);
+  }
+}
+function startThumbnail(img) {
+  const url = img.dataset.thumbnail;
+  let finished = false;
+  const finish = (loaded) => {
+    if (finished) return;
+    finished = true;
+    if (loaded) loadedThumbnails.add(url);
+    thumbnailsLoading--;
+    pumpThumbnails();
+  };
+  thumbnailsLoading++;
+  img.addEventListener('load', () => finish(true), { once: true });
+  img.addEventListener('error', () => finish(false), { once: true });
+  img.removeAttribute('data-thumbnail');
+  img.src = url;
+}
+function loadThumbnails(root) {
+  root.querySelectorAll('img[data-thumbnail]').forEach((img) => {
+    if (thumbnailObserver) thumbnailObserver.observe(img);
+    else thumbnailQueue.add(img);
+  });
+  pumpThumbnails();
+}
 function watchPreviewErrors(root = document) {
-  root.querySelectorAll('[data-model-image]').forEach((img) => {
+  root.querySelectorAll('[data-model-image]:not([data-watched])').forEach((img) => {
+    img.dataset.watched = '1';
     img.addEventListener('error', () => {
       const m = models.find((m) => m.id === img.dataset.modelImage);
       if (img.dataset.photoCover === '1' && m && canPreview(m)) {
@@ -85,7 +137,13 @@ async function api(path, options = {}) {
   if (!response.ok) throw new Error(result.error || 'Request failed.');
   return result;
 }
+// A home-screen app has no reload button and can sit in the background for days.
+let lastRefresh = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && Date.now() - lastRefresh > 5 * 60_000) refresh();
+});
 async function refresh() {
+  lastRefresh = Date.now();
   try {
     models = await api('/api/models');
     for (const id of selectedModels) if (!models.some((m) => m.id === id)) selectedModels.delete(id);
@@ -105,20 +163,69 @@ function chooseView(next, collection = '') {
   $$('.nav-item[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   render();
 }
+function cardMarkup(m) {
+  const count = m.files.filter((f) => f.kind === 'model').length;
+  const statusClass = 'status-' + m.status.toLowerCase().replace(/\s+/g, '-');
+  const added = new Date(m.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const tags = m.tags
+    .slice(0, 3)
+    .map((t) => `<span>${escapeHTML(t)}</span>`)
+    .join('');
+  return `<article class="model-card ${selectedModels.has(m.id) ? 'is-selected' : ''}">${selectionMode ? `<label class="card-selection"><input type="checkbox" data-select-id="${m.id}" aria-label="Select ${escapeHTML(m.title)}" ${selectedModels.has(m.id) ? 'checked' : ''}></label>` : ''}<a class="card-open" href="/models/${m.id}" data-open="${m.id}" aria-label="Open ${escapeHTML(m.title)}">${previewMarkup(m, 'card-image')}<div class="card-body"><div class="card-title-row"><h3>${escapeHTML(m.title)}</h3><span class="status-pill ${statusClass}">${escapeHTML(m.status)}</span></div><div class="creator">${escapeHTML(m.creator || 'Your collection')}<span class="source-label"> · ${escapeHTML(prettySource(m))}</span></div><div class="card-tags">${tags}${m.tags.length > 3 ? `<span>+${m.tags.length - 3}</span>` : ''}</div></div></a><button class="favorite-button ${m.favorite ? 'is-favorite' : ''}" data-favorite="${m.id}" aria-label="${m.favorite ? 'Remove from' : 'Add to'} favorites"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></button><div class="card-footer"><span>${count} file${count === 1 ? '' : 's'}</span><span>${escapeHTML(added)}</span></div></article>`;
+}
+// Cards are added as you scroll: drawing thousands at once is what makes a big
+// library slow. Filtering and search still cover the whole library.
+const CARD_BATCH = 60;
+let listedModels = [],
+  listKey = '',
+  shownCards = CARD_BATCH;
+const moreObserver =
+  'IntersectionObserver' in window
+    ? new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && showMoreCards(), {
+        rootMargin: '800px',
+      })
+    : null;
+function drawCards(from, to) {
+  const grid = $('#model-grid');
+  const html = listedModels.slice(from, to).map(cardMarkup).join('');
+  if (from) grid.insertAdjacentHTML('beforeend', html);
+  else grid.innerHTML = html;
+  watchPreviewErrors(grid);
+  loadThumbnails(grid);
+  const more = $('#show-more');
+  more.hidden = to >= listedModels.length;
+  if (moreObserver) {
+    // Observing again reports the position now, even if the button did not move out of range.
+    moreObserver.unobserve(more);
+    if (!more.hidden) moreObserver.observe(more);
+  }
+}
+function showMoreCards() {
+  const from = Math.min(shownCards, listedModels.length);
+  shownCards = from + CARD_BATCH;
+  drawCards(from, shownCards);
+}
 function render() {
-  const favorites = models.filter((m) => m.favorite).length,
-    queued = models.filter((m) => m.status === 'To print').length,
-    printed = models.filter((m) => m.status === 'Printed').length;
+  let favorites = 0,
+    queued = 0,
+    printed = 0;
+  const collectionCounts = new Map();
+  for (const m of models) {
+    if (m.favorite) favorites++;
+    if (m.status === 'To print') queued++;
+    if (m.status === 'Printed') printed++;
+    for (const name of modelCollections(m)) collectionCounts.set(name, (collectionCounts.get(name) || 0) + 1);
+  }
   $('#total-count').textContent = models.length;
   $('#favorite-count').textContent = favorites;
   $('#queue-count').textContent = queued;
   $('#printed-count').textContent = printed;
-  const collections = [...new Set([...models.flatMap(modelCollections), ...draftCollections])].sort();
+  const collections = [...new Set([...collectionCounts.keys(), ...draftCollections])].sort();
   $('#collections').innerHTML =
     collections
       .map(
         (name) =>
-          `<button class="collection-item ${view === 'collection' && activeCollection === name ? 'active' : ''}" data-collection="${escapeHTML(name)}"><span class="folder">▱</span>${escapeHTML(name)}<b>${models.filter((m) => modelCollections(m).includes(name)).length}</b></button>`
+          `<button class="collection-item ${view === 'collection' && activeCollection === name ? 'active' : ''}" data-collection="${escapeHTML(name)}"><span class="folder">▱</span>${escapeHTML(name)}<b>${collectionCounts.get(name) || 0}</b></button>`
       )
       .join('') || '<div class="collection-empty">Your collections will live here</div>';
   $('#collection-options').innerHTML = collections
@@ -183,19 +290,17 @@ function render() {
   $('#empty-state').hidden = models.length !== 0;
   $('#no-results').hidden = filtered.length !== 0 || models.length === 0;
   $('#model-grid').classList.toggle('list-mode', listMode);
-  $('#model-grid').innerHTML = filtered
-    .map((m) => {
-      const count = m.files.filter((f) => f.kind === 'model').length;
-      const statusClass = 'status-' + m.status.toLowerCase().replace(/\s+/g, '-');
-      const added = new Date(m.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      const tags = m.tags
-        .slice(0, 3)
-        .map((t) => `<span>${escapeHTML(t)}</span>`)
-        .join('');
-      return `<article class="model-card ${selectedModels.has(m.id) ? 'is-selected' : ''}">${selectionMode ? `<label class="card-selection"><input type="checkbox" data-select-id="${m.id}" aria-label="Select ${escapeHTML(m.title)}" ${selectedModels.has(m.id) ? 'checked' : ''}></label>` : ''}<a class="card-open" href="/models/${m.id}" data-open="${m.id}" aria-label="Open ${escapeHTML(m.title)}">${previewMarkup(m, 'card-image')}<div class="card-body"><div class="card-title-row"><h3>${escapeHTML(m.title)}</h3><span class="status-pill ${statusClass}">${escapeHTML(m.status)}</span></div><div class="creator">${escapeHTML(m.creator || 'Your collection')}<span class="source-label"> · ${escapeHTML(prettySource(m))}</span></div><div class="card-tags">${tags}${m.tags.length > 3 ? `<span>+${m.tags.length - 3}</span>` : ''}</div></div></a><button class="favorite-button ${m.favorite ? 'is-favorite' : ''}" data-favorite="${m.id}" aria-label="${m.favorite ? 'Remove from' : 'Add to'} favorites"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></button><div class="card-footer"><span>${count} file${count === 1 ? '' : 's'}</span><span>${escapeHTML(added)}</span></div></article>`;
-    })
-    .join('');
-  watchPreviewErrors($('#model-grid'));
+  // Keep what is already drawn when the list is unchanged, so returning from a model
+  // page or marking a favorite does not lose your place.
+  const key = JSON.stringify([view, activeCollection, activeTag, q, source, status, sort]);
+  if (key !== listKey) {
+    listKey = key;
+    shownCards = CARD_BATCH;
+  }
+  listedModels = filtered;
+  thumbnailObserver?.disconnect();
+  thumbnailQueue.clear();
+  drawCards(0, shownCards);
 }
 function openEditor(id = null, importing = false) {
   editingId = id;
@@ -519,8 +624,9 @@ document.addEventListener('click', (e) => {
 async function toggleFavorite(id) {
   try {
     const m = models.find((m) => m.id === id);
-    await api('/api/models/' + id, { method: 'PATCH', body: JSON.stringify({ favorite: !m.favorite }) });
-    await refresh();
+    const fresh = await api('/api/models/' + id, { method: 'PATCH', body: JSON.stringify({ favorite: !m.favorite }) });
+    models = models.map((x) => (x.id === id ? fresh : x));
+    render();
   } catch (error) {
     notify(error.message);
   }
@@ -547,6 +653,7 @@ $('#upload-files').onchange = () => {
     [...$('#upload-files').files].map((f) => f.name).join(' · ') || 'Choose files or drop them here';
 };
 $('#search').oninput = render;
+$('#show-more').onclick = showMoreCards;
 for (const id of ['source-filter', 'status-filter', 'sort']) $('#' + id).onchange = render;
 $('#grid-view').onclick = () => {
   listMode = false;
@@ -761,13 +868,15 @@ async function refreshWatchStatus() {
 }
 async function loadReviews() {
   const [status, result] = await Promise.all([api('/api/watch'), api('/api/watch/review')]);
+  // The list can refresh while it is open, so keep what has been ticked.
+  const ticked = new Set($$('.review-check:checked').map((i) => i.value));
   $('#watch-enabled').checked = status.enabled;
   $('#watch-interval').value = String(status.interval);
   $('#watch-last-scan').textContent =
     status.error ||
     'Last checked: ' + (status.last_scan ? new Date(status.last_scan).toLocaleString() : 'Waiting for the first scan.');
   $('#review-total').textContent = result.items.length + ' items';
-  $('#review-select-all').checked = false;
+  $('#review-select-all').checked = result.items.length > 0 && result.items.every((i) => ticked.has(String(i.id)));
   $('#review-items').innerHTML =
     result.items
       .map((item) => {
@@ -782,10 +891,10 @@ async function loadReviews() {
                 p.files.length +
                 ' files now. Your organization will be kept.'
               : 'The source files are unavailable. Dismiss to acknowledge and keep the catalog entry.';
-        return `<article class="review-item"><input type="checkbox" class="review-check" value="${item.id}" aria-label="Review ${escapeHTML(p.title)}"><div class="review-item-content"><strong>${escapeHTML(p.title)}</strong><span class="review-kind ${item.kind}">${label}</span><p>${escapeHTML(summary)}</p><small>${escapeHTML(item.folder_key)}</small></div>${p.model_id ? `<button class="text-button" data-inbox-model="${p.model_id}">View</button>` : ''}</article>`;
+        return `<article class="review-item"><input type="checkbox" class="review-check" value="${item.id}" aria-label="Review ${escapeHTML(p.title)}" ${ticked.has(String(item.id)) ? 'checked' : ''}><div class="review-item-content"><strong>${escapeHTML(p.title)}</strong><span class="review-kind ${item.kind}">${label}</span><p>${escapeHTML(summary)}</p><small>${escapeHTML(item.folder_key)}</small></div>${p.model_id ? `<button class="text-button" data-inbox-model="${p.model_id}">View</button>` : ''}</article>`;
       })
       .join('') ||
-    '<div class="inbox-empty"><h3>You’re all caught up.</h3><p>New files and changes will appear here after your next folder scan.</p></div>';
+    '<div class="inbox-empty"><h3>You’re all caught up.</h3><p>New files and folder changes will appear here.</p></div>';
   $('#review-count').textContent = status.pending;
   await refreshWatchStatus();
   $$('[data-inbox-model]').forEach(
@@ -796,14 +905,37 @@ async function loadReviews() {
       })
   );
 }
+let inboxScan = null;
+function scanInbox() {
+  // One scan at a time, whether it came from opening the inbox or from Scan now.
+  inboxScan ||= (async () => {
+    const b = $('#watch-scan-now');
+    b.disabled = true;
+    b.textContent = 'Scanning…';
+    $('#watch-last-scan').textContent = 'Checking your folders…';
+    try {
+      await api('/api/watch/scan', { method: 'POST', body: '{}' });
+      await loadReviews();
+    } catch (error) {
+      $('#review-message').textContent = error.message;
+      await loadReviews().catch(() => {});
+    } finally {
+      b.disabled = false;
+      b.textContent = 'Scan now';
+      inboxScan = null;
+    }
+  })();
+  return inboxScan;
+}
 async function openInbox() {
   $('#review-message').textContent = '';
   $('#review-dialog').showModal();
   try {
-    await loadReviews();
+    await loadReviews(); // Show what is already known straight away, then look for more.
   } catch (error) {
     $('#review-message').textContent = error.message;
   }
+  await scanInbox();
 }
 $('#review-button').onclick = $('#review-banner-button').onclick = openInbox;
 $('#review-select-all').onchange = (e) => $$('.review-check').forEach((i) => (i.checked = e.target.checked));
@@ -818,20 +950,9 @@ $('#save-watch').onclick = async () => {
     $('#review-message').textContent = error.message;
   }
 };
-$('#watch-scan-now').onclick = async () => {
-  const b = $('#watch-scan-now');
-  b.disabled = true;
-  b.textContent = 'Scanning…';
+$('#watch-scan-now').onclick = () => {
   $('#review-message').textContent = '';
-  try {
-    await api('/api/watch/scan', { method: 'POST', body: '{}' });
-    await loadReviews();
-  } catch (error) {
-    $('#review-message').textContent = error.message;
-  } finally {
-    b.disabled = false;
-    b.textContent = 'Scan now';
-  }
+  scanInbox();
 };
 async function reviewSelection(action) {
   const ids = $$('.review-check:checked').map((i) => Number(i.value));
@@ -842,6 +963,7 @@ async function reviewSelection(action) {
   $('#approve-review').disabled = $('#ignore-review').disabled = true;
   $('#review-message').textContent = '';
   try {
+    await inboxScan; // The server refuses changes while a scan is running.
     const result = await api('/api/watch/review', { method: 'POST', body: JSON.stringify({ ids, action }) });
     await refresh();
     await loadReviews();

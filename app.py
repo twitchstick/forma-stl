@@ -1,5 +1,6 @@
 """Forma: a single-user, self-hosted print library."""
 
+import gzip
 import hashlib
 import http.client
 import ipaddress
@@ -195,6 +196,11 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             '/static/login.js',
             '/static/login.css',
             '/static/fonts/Geist-Variable.woff2',
+            '/static/manifest.webmanifest',
+            '/static/icons/icon-192.png',
+            '/static/icons/icon-512.png',
+            '/static/icons/maskable-512.png',
+            '/static/icons/apple-touch-icon.png',
         )
         public_auth = request.path in ('/api/auth/login', '/api/auth/status')
         if not public_read and request.path != '/api/auth/login':
@@ -220,7 +226,10 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
         )
         if request.path.startswith('/api'):
-            response.headers['Cache-Control'] = 'no-store'
+            # Pictures and meshes can be reused until they change. The server is still
+            # asked each time, so signing out or removing a file takes effect at once.
+            reusable = request.endpoint in ('thumbnail', 'get_file', 'file_mesh') and response.status_code in (200, 304)
+            response.headers['Cache-Control'] = 'private, no-cache' if reusable else 'no-store'
         origin = request.headers.get('Origin', '')
         if request.path.startswith('/api/companion/') and origin.startswith(
             ('chrome-extension://', 'moz-extension://')
@@ -354,7 +363,13 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
     @app.get('/api/models')
     def list_models():
         with db() as c:
-            return jsonify(load_models(c))
+            response = jsonify(load_models(c))
+        # Descriptions shrink to about a quarter, which matters most on a phone.
+        response.vary.add('Accept-Encoding')
+        if 'gzip' in request.accept_encodings and response.content_length > 64_000:
+            response.set_data(gzip.compress(response.get_data(), 1))
+            response.headers['Content-Encoding'] = 'gzip'
+        return response
 
     @app.post('/api/models')
     def add_model():

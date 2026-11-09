@@ -109,6 +109,14 @@ Pairing codes expire after ten minutes and work once. Batches accept up to 500 d
 
 This uses MakerWorld's internal read/download interfaces, which can change. Signed-in private-collection access and Safari site-policy behavior must be validated in the user's signed-in browser. The importer reports site verification/authentication errors and does not bypass them. It does not ask for or change your MakerWorld password, likes, saves or collections. See [companion details and permissions](companion/README.md).
 
+## Install on your phone
+
+Open Forma in your phone's browser and use **Share → Add to Home Screen** (iPhone) or **Add to Home screen** in the browser menu (Android). It gets its own icon and, on iPhone, opens full screen. Forma needs your server to be reachable, so it does not work offline. Android treats it as a full app only over HTTPS, such as through a reverse proxy; over plain HTTP it adds a shortcut that opens in the browser.
+
+## Large libraries
+
+The library draws cards as you scroll, while search, filters and counts always cover every model. Thumbnails for new models are drawn a few at a time, so the first look at a big import fills in gradually and Forma stays usable meanwhile.
+
 ## Memory
 
 Thumbnails, 3D previews, measurements and slicer copies load whole model files, which can need far more memory than the file size. Forma does this work in a separate, short-lived process, one file at a time, and the memory is returned to the system when it finishes. Each job may use up to `FORMA_WORKER_MEMORY_MB` (default 2048). A file that needs more is shown as too large to preview; the server keeps running. Large binary STL and 3MF files are read with streaming loaders, so a 130 MB STL or a 3MF with 2.6 million triangles stays under 1 GB.
