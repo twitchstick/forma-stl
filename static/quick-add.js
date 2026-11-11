@@ -1,7 +1,7 @@
 // Quick adding: drop or paste files anywhere, or paste a model link.
 // In the library, files become a new model (after a one-step confirmation).
 // On a model page, files are added to that model.
-const QUICK_ACCEPTED = /\.(stl|3mf|obj|step|stp|zip|jpe?g|png|webp|gif)$/i,
+const QUICK_ACCEPTED = /\.(stl|3mf|obj|step|stp|zip|jpe?g|png|webp|gif|pdf)$/i,
   QUICK_MODEL = /\.(stl|3mf|obj|step|stp|zip)$/i,
   QUICK_LIMIT = 510 * 1024 * 1024;
 let quickFiles = [],
@@ -124,7 +124,7 @@ function skippedText(skipped) {
   if (!skipped.length) return '';
   const names = skipped.slice(0, 3).map((f) => f.name);
   if (skipped.length > 3) names.push(`${skipped.length - 3} more`);
-  return `Skipped ${names.join(', ')}: Forma keeps STL, 3MF, OBJ, STEP, ZIP and image files.`;
+  return `Skipped ${names.join(', ')}: Forma keeps STL, 3MF, OBJ, STEP, ZIP, image and PDF files.`;
 }
 function showProgressToast(text) {
   clearTimeout(toastTimer);
@@ -360,7 +360,7 @@ function showDropOverlay(show) {
   if (show) {
     const m = modelPageId && models.find((x) => x.id === modelPageId);
     overlay.querySelector('strong').textContent = m ? `Add files to ${m.title}` : 'Drop to add a model';
-    overlay.querySelector('span').textContent = 'STL, 3MF, OBJ, STEP, ZIP or photos';
+    overlay.querySelector('span').textContent = 'STL, 3MF, OBJ, STEP, ZIP, photos or PDFs';
   }
   overlay.hidden = !show;
 }

@@ -36,6 +36,18 @@ from migrations import add_columns, backup_before_upgrade, migrate
 ROOT = Path(__file__).resolve().parent
 MODELS = {'.stl', '.3mf', '.obj', '.step', '.stp', '.zip'}
 IMAGES = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
+DOCUMENTS = {'.pdf'}  # Assembly instructions and other guides that come with a model.
+
+
+def file_kind(suffix):
+    suffix = suffix.lower()
+    return 'image' if suffix in IMAGES else 'document' if suffix in DOCUMENTS else 'model'
+
+
+def is_pdf(path):
+    # The PDF format allows a little leading junk before its marker.
+    with open(path, 'rb') as stream:
+        return b'%PDF-' in stream.read(1024)
 
 
 def now():
@@ -222,8 +234,9 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['Content-Security-Policy'] = (
-            "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+        response.headers.setdefault(
+            'Content-Security-Policy',
+            "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
         )
         if request.path.startswith('/api'):
             # Pictures and meshes can be reused until they change. The server is still
@@ -482,7 +495,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
             c.execute("UPDATE models SET cover_id=? WHERE id=? AND cover_id=''", (fid, id))
         return fid
 
-    services = LibraryServices(db, library, uploads, MODELS, IMAGES, insert_model, add_file, now)
+    services = LibraryServices(db, library, uploads, MODELS, IMAGES, DOCUMENTS, insert_model, add_file, now)
     app.extensions['library_services'] = services
     app.extensions['source_imports'] = SourceImports(
         app, db, data, library, model, add_file, lambda *args: fetch_public(*args), now
@@ -535,8 +548,8 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         items = request.files.getlist('files')
         if not items:
             raise ValueError('Choose files to upload.')
-        if any(Path(f.filename).suffix.lower() not in MODELS | IMAGES for f in items):
-            raise ValueError('Use STL, 3MF, OBJ, STEP, ZIP, JPG, PNG, WebP or GIF files.')
+        if any(Path(f.filename).suffix.lower() not in MODELS | IMAGES | DOCUMENTS for f in items):
+            raise ValueError('Use STL, 3MF, OBJ, STEP, ZIP, JPG, PNG, WebP, GIF or PDF files.')
         folder = uploads / id
         with db() as c:
             model(c, id)
@@ -548,7 +561,9 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
                     path = folder / (str(uuid.uuid4()) + Path(name).suffix.lower())
                     saved.append(path)
                     f.save(path)
-                    kind = 'image' if path.suffix in IMAGES else 'model'
+                    kind = file_kind(path.suffix)
+                    if kind == 'document' and not is_pdf(path):
+                        raise ValueError(name + ' is not a PDF file.')
                     digest = hashlib.sha256()
                     with path.open('rb') as stream:
                         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
@@ -579,9 +594,17 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
         root = library if f['external'] else uploads
         if not path.is_relative_to(root) or not path.is_file():
             abort(404, 'File no longer exists at its original location.')
+        download = request.args.get('download') == '1'
+        if f['kind'] == 'document' and not download:
+            # Opens in the browser's own PDF reader. The type is fixed, never guessed
+            # from the file, so a file that only claims to be a PDF cannot run as a page.
+            # Page rules such as object-src stop some built-in readers, so only framing is refused.
+            response = send_file(path, mimetype='application/pdf', download_name=f['name'], conditional=True)
+            response.headers['Content-Security-Policy'] = "frame-ancestors 'none'"
+            return response
         return send_file(
             path,
-            as_attachment=f['kind'] != 'image' or request.args.get('download') == '1',
+            as_attachment=f['kind'] != 'image' or download,
             download_name=f['name'],
             conditional=True,
         )
@@ -687,7 +710,7 @@ def create_app(data_dir=None, library_dir=None, start_watcher=False):
                     c, {'title': Path(key).name.replace('_', ' ').replace('-', ' '), 'tags': []}, 'folder:' + key
                 )
                 for p in paths:
-                    add_file(c, id, p.name, p, 'image' if p.suffix.lower() in IMAGES else 'model', external=True)
+                    add_file(c, id, p.name, p, file_kind(p.suffix), external=True)
                 count += 1
         return jsonify(imported=count)
 

@@ -15,6 +15,7 @@ A personal, self-hosted STL library for Unraid with dark, light and system appea
 - Drop files anywhere to add a model: Forma names it after the model file and asks once before saving. Drop files on a model page to add them to it. Paste files, screenshots or a model page link anywhere to do the same.
 - Files you drop are compared by content with your library before anything uploads. If a file is already there, even under another name, Forma says which model has it and offers to open that model instead.
 - Upload STL, 3MF, OBJ, STEP, STP and ZIP files, plus JPG, PNG, WebP and GIF images. ZIP files are stored for download, not extracted.
+- Keep PDF instructions with a model. They are listed under **Instructions** on the model page and open in your browser's PDF reader. Upload or drop them, or leave them beside the model files in a scanned folder. PDFs inside a ZIP are not shown.
 - Import public page metadata (title, description, creator, tags and Open Graph cover image when provided).
 - Scan an existing server folder, read-only. Each containing folder becomes a model with its files and pictures. Root-level files are grouped by filename stem. Repeated scans skip existing imported folders.
 - SQLite persistence, duplicate-source detection, duplicate-attachment detection, JSON catalog export, and downloadable database/upload backups.

@@ -1578,6 +1578,9 @@ body.viewing-model #error-banner {
   font-weight: 500;
   white-space: nowrap;
 }
+.detail-file a.button {
+  color: var(--ink);
+}
 .file-actions {
   display: flex;
   align-items: center;

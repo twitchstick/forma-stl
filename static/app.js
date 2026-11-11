@@ -517,8 +517,19 @@ function openDetail(id, { push = true } = {}) {
     history.pushState({ model: id, fromLibrary: true }, '', '/models/' + id);
   closeViewer();
   const images = m.files.filter((f) => f.kind === 'image'),
-    files = m.files.filter((f) => f.kind !== 'image'),
+    documents = m.files.filter((f) => f.kind === 'document'),
+    files = m.files.filter((f) => f.kind !== 'image' && f.kind !== 'document'),
     viewable = files.filter((f) => VIEWABLE.test(f.name));
+  // Instructions open in the browser's own PDF reader, in a new tab so the model page stays put.
+  const instructions = documents.length
+    ? `<h3 class="file-heading">Instructions · ${documents.length}</h3>` +
+      documents
+        .map(
+          (f) =>
+            `<div class="detail-file"><span>${escapeHTML(f.name)}</span><small>${bytes(f.size)}</small><div class="file-actions"><a class="button secondary" href="/api/files/${f.id}" target="_blank" rel="noopener" data-document="${f.id}">Open</a><a href="/api/files/${f.id}?download=1" download>Download</a></div></div>`
+        )
+        .join('')
+    : '';
   const thumbs =
     viewable
       .map(
@@ -540,6 +551,7 @@ function openDetail(id, { push = true } = {}) {
     `<div class="detail-body"><div class="detail-heading"><div><div class="eyebrow">${escapeHTML(prettySource(m))}</div><h2>${escapeHTML(m.title)}</h2><div class="creator">${escapeHTML(m.creator ? 'by ' + m.creator : 'Your collection')}${modelCollections(m).length ? ' · ' + escapeHTML(modelCollections(m).join(' · ')) : ''}</div></div></div>` +
     `<div class="card-tags"><span class="status-pill ${statusClass}">${escapeHTML(m.status)}</span>${m.tags.map((t) => `<span>${escapeHTML(t)}</span>`).join('')}</div>` +
     `${m.description ? `<p class="detail-description">${escapeHTML(m.description)}</p>` : ''}${m.source_url ? `<a class="detail-source" href="${escapeHTML(m.source_url)}" target="_blank" rel="noopener noreferrer">View original model page ↗</a>` : ''}` +
+    instructions +
     `<h3 class="file-heading">Files · ${files.length}</h3>${files.map((f) => `<div class="detail-file"><span>${escapeHTML(f.name)}</span><small>${bytes(f.size)}</small><div class="file-actions">${/\.(stl|3mf|obj|step|stp)$/i.test(f.name) ? `<button class="button secondary" data-slicer-file="${f.id}">Open in slicer</button>` : ''}<a href="/api/files/${f.id}?download=1" download>Download</a></div></div>`).join('') || '<p class="muted">No model files yet. Add downloaded files with Edit model.</p>'}` +
     `<div class="detail-end"><span>Added ${escapeHTML(new Date(m.created_at).toLocaleDateString())}</span><button class="danger-button" id="delete-model">Remove from library</button></div></div></div>`;
   $('#edit-model').onclick = () => openEditor(m.id);

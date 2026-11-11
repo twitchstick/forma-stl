@@ -164,9 +164,9 @@ function pasteEvent(target, { files = [], text = '' }) {
   // Only unsupported files: nothing is created and the reason is shown.
   click($('[data-back]'));
   await settle();
-  fileEvent('drop', [file('readme.pdf')]);
+  fileEvent('drop', [file('readme.docx')]);
   assert.equal($('#quick-add').open, false);
-  assert.match($('#toast').textContent, /Skipped readme\.pdf/);
+  assert.match($('#toast').textContent, /Skipped readme\.docx/);
 
   // If the upload fails, the new model is kept and the reason is shown.
   failUpload = true;

@@ -9,9 +9,11 @@ from pathlib import Path
 
 
 class LibraryServices:
-    def __init__(self, db, library, uploads, model_extensions, image_extensions, insert_model, add_file, now):
+    def __init__(
+        self, db, library, uploads, model_extensions, image_extensions, document_extensions, insert_model, add_file, now
+    ):
         self.db, self.library, self.uploads = db, library, uploads
-        self.models, self.images = model_extensions, image_extensions
+        self.models, self.images, self.documents = model_extensions, image_extensions, document_extensions
         self.insert_model, self.add_file, self.now = insert_model, add_file, now
         self.scan_lock = threading.Lock()
         self.hash_lock = threading.Lock()
@@ -68,7 +70,8 @@ class LibraryServices:
             raise ValueError('The model share is unavailable. Check the /library mount.')
         groups = {}
         for p in sorted(self.library.rglob('*')):
-            if p.is_symlink() or not p.is_file() or p.suffix.lower() not in self.models | self.images:
+            suffix = p.suffix.lower()
+            if p.is_symlink() or not p.is_file() or suffix not in self.models | self.images | self.documents:
                 continue
             p = p.resolve()
             if not p.is_relative_to(self.library):
@@ -81,7 +84,7 @@ class LibraryServices:
                     'path': str(p),
                     'size': stat.st_size,
                     'mtime_ns': stat.st_mtime_ns,
-                    'kind': 'image' if p.suffix.lower() in self.images else 'model',
+                    'kind': 'image' if suffix in self.images else 'document' if suffix in self.documents else 'model',
                 }
             )
         return {k: v for k, v in groups.items() if any(f['kind'] == 'model' for f in v)}
